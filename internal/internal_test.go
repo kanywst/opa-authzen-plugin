@@ -131,7 +131,9 @@ func TestEvaluationWithContext(t *testing.T) {
 	p.handleEvaluation(w, req)
 
 	var resp evaluationResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
 	if !resp.Decision {
 		t.Fatal("expected decision=true")
 	}
@@ -161,7 +163,9 @@ func TestEvaluationDispatchByResourceAction(t *testing.T) {
 	p.handleEvaluation(w, req)
 
 	var resp evaluationResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
 	if !resp.Decision {
 		t.Fatal("expected decision=true")
 	}
@@ -181,7 +185,9 @@ func TestWellKnown(t *testing.T) {
 	}
 
 	var metadata map[string]string
-	json.Unmarshal(w.Body.Bytes(), &metadata)
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
 
 	if metadata["policy_decision_point"] != "http://localhost:8181" {
 		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
@@ -220,5 +226,81 @@ func TestInvalidBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestStoppedPluginRejectsEvaluation(t *testing.T) {
+	p := testPlugin(t, `package authzen
+		default allow = false
+	`)
+
+	p.Stop(context.Background())
+
+	body := `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestStoppedPluginRejectsWellKnown(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	p.Stop(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	w := httptest.NewRecorder()
+
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestWellKnownXForwardedHost(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = ""
+	req.Header.Set("X-Forwarded-Host", "pdp.example.com")
+	w := httptest.NewRecorder()
+
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var metadata map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+
+	if metadata["policy_decision_point"] != "http://pdp.example.com" {
+		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	}
+}
+
+func TestStartRegistersExtraRoutes(t *testing.T) {
+	p := testPlugin(t, `package authzen
+		default allow = false
+	`)
+
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	status := p.manager.PluginStatus()
+	ps, ok := status[PluginName]
+	if !ok {
+		t.Fatal("expected plugin status to be registered")
+	}
+	if ps.State != plugins.StateOK {
+		t.Fatalf("expected StateOK, got %v", ps.State)
 	}
 }

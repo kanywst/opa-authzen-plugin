@@ -46,7 +46,8 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 type AuthZenPlugin struct {
 	manager *plugins.Manager
 	cfg     Config
-	mu      sync.Mutex
+	mu      sync.RWMutex
+	stopped bool
 	logger  logging.Logger
 }
 
@@ -71,9 +72,12 @@ func (p *AuthZenPlugin) Start(_ context.Context) error {
 	return nil
 }
 
-// Stop marks the plugin as not ready. Routes registered via ExtraRoute
-// persist for the lifetime of the OPA process.
+// Stop marks the plugin as not ready and rejects new requests. Routes
+// registered via ExtraRoute persist for the lifetime of the OPA process.
 func (p *AuthZenPlugin) Stop(_ context.Context) {
+	p.mu.Lock()
+	p.stopped = true
+	p.mu.Unlock()
 	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateNotReady})
 }
 
@@ -82,6 +86,7 @@ func (p *AuthZenPlugin) Reconfigure(_ context.Context, config any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cfg = *config.(*Config)
+	p.stopped = false
 }
 
 // AuthZEN Access Evaluation API request.
@@ -99,6 +104,14 @@ type evaluationResponse struct {
 }
 
 func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	stopped := p.stopped
+	p.mu.RUnlock()
+	if stopped {
+		http.Error(w, `{"error":"plugin is shutting down"}`, http.StatusServiceUnavailable)
+		return
+	}
+
 	// Echo X-Request-ID if present (Section 10.1.3).
 	if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
 		w.Header().Set("X-Request-ID", reqID)
@@ -114,22 +127,34 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	input := map[string]any{}
 	if req.Subject != nil {
 		var v any
-		json.Unmarshal(req.Subject, &v)
+		if err := json.Unmarshal(req.Subject, &v); err != nil {
+			http.Error(w, `{"error":"invalid subject"}`, http.StatusBadRequest)
+			return
+		}
 		input["subject"] = v
 	}
 	if req.Resource != nil {
 		var v any
-		json.Unmarshal(req.Resource, &v)
+		if err := json.Unmarshal(req.Resource, &v); err != nil {
+			http.Error(w, `{"error":"invalid resource"}`, http.StatusBadRequest)
+			return
+		}
 		input["resource"] = v
 	}
 	if req.Action != nil {
 		var v any
-		json.Unmarshal(req.Action, &v)
+		if err := json.Unmarshal(req.Action, &v); err != nil {
+			http.Error(w, `{"error":"invalid action"}`, http.StatusBadRequest)
+			return
+		}
 		input["action"] = v
 	}
 	if req.Context != nil {
 		var v any
-		json.Unmarshal(req.Context, &v)
+		if err := json.Unmarshal(req.Context, &v); err != nil {
+			http.Error(w, `{"error":"invalid context"}`, http.StatusBadRequest)
+			return
+		}
 		input["context"] = v
 	}
 
@@ -152,13 +177,18 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 }
 
 func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, error) {
+	p.mu.RLock()
+	path := p.cfg.Path
+	decisionRule := p.cfg.Decision
+	p.mu.RUnlock()
+
 	txn, err := p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
 	if err != nil {
 		return false, fmt.Errorf("creating transaction: %w", err)
 	}
 	defer p.manager.Store.Abort(ctx, txn)
 
-	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(p.cfg.Path, "/", "."), p.cfg.Decision)
+	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), decisionRule)
 
 	r := rego.New(
 		rego.Compiler(p.manager.GetCompiler()),
@@ -186,16 +216,32 @@ func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, e
 }
 
 func (p *AuthZenPlugin) logDecision(_ context.Context, input map[string]any, decision bool) {
-	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", p.cfg.Path, p.cfg.Decision, decision, input)
+	p.mu.RLock()
+	path := p.cfg.Path
+	dec := p.cfg.Decision
+	p.mu.RUnlock()
+	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", path, dec, decision, input)
 }
 
 // PDP Metadata endpoint (Section 9).
 func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	stopped := p.stopped
+	p.mu.RUnlock()
+	if stopped {
+		http.Error(w, `{"error":"plugin is shutting down"}`, http.StatusServiceUnavailable)
+		return
+	}
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	base := fmt.Sprintf("%s://%s", scheme, r.Host)
+	host := r.Host
+	if host == "" {
+		host = r.Header.Get("X-Forwarded-Host")
+	}
+	base := fmt.Sprintf("%s://%s", scheme, host)
 	metadata := map[string]string{
 		"policy_decision_point":      base,
 		"access_evaluation_endpoint": base + "/access/v1/evaluation",
