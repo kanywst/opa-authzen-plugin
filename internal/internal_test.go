@@ -169,9 +169,9 @@ func TestEvaluationDispatchByResourceAction(t *testing.T) {
 
 func TestWellKnown(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
-	p.cfg.Addr = "localhost:9292"
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
 	w := httptest.NewRecorder()
 
 	p.handleWellKnown(w, req)
@@ -183,10 +183,10 @@ func TestWellKnown(t *testing.T) {
 	var metadata map[string]string
 	json.Unmarshal(w.Body.Bytes(), &metadata)
 
-	if metadata["policy_decision_point"] != "http://localhost:9292" {
+	if metadata["policy_decision_point"] != "http://localhost:8181" {
 		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
 	}
-	if metadata["access_evaluation_endpoint"] != "http://localhost:9292/access/v1/evaluation" {
+	if metadata["access_evaluation_endpoint"] != "http://localhost:8181/access/v1/evaluation" {
 		t.Fatalf("unexpected endpoint: %s", metadata["access_evaluation_endpoint"])
 	}
 }

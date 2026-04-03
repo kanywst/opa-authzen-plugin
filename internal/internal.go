@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,14 +18,12 @@ import (
 const (
 	PluginName = "authzen"
 
-	defaultAddr     = ":9292"
 	defaultPath     = "authzen"
 	defaultDecision = "allow"
 )
 
 // Config represents the plugin configuration.
 type Config struct {
-	Addr     string `json:"addr"`
 	Path     string `json:"path"`
 	Decision string `json:"decision"`
 }
@@ -34,7 +31,6 @@ type Config struct {
 // Validate parses and validates the plugin configuration.
 func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 	cfg := Config{
-		Addr:     defaultAddr,
 		Path:     defaultPath,
 		Decision: defaultDecision,
 	}
@@ -48,12 +44,10 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 
 // AuthZenPlugin implements the AuthZEN Authorization API on top of OPA.
 type AuthZenPlugin struct {
-	manager  *plugins.Manager
-	cfg      Config
-	server   *http.Server
-	mu       sync.Mutex
-	logger   logging.Logger
-	started  bool
+	manager *plugins.Manager
+	cfg     Config
+	mu      sync.Mutex
+	logger  logging.Logger
 }
 
 // New creates a new AuthZenPlugin.
@@ -65,47 +59,21 @@ func New(m *plugins.Manager, cfg *Config) *AuthZenPlugin {
 	}
 }
 
-// Start starts the AuthZEN HTTP server.
-func (p *AuthZenPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting AuthZEN plugin on %s", p.cfg.Addr)
+// Start registers the AuthZEN routes on OPA's HTTP server via ExtraRoute.
+func (p *AuthZenPlugin) Start(_ context.Context) error {
+	p.logger.Info("Starting AuthZEN plugin")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /access/v1/evaluation", p.handleEvaluation)
-	mux.HandleFunc("GET /.well-known/authzen-configuration", p.handleWellKnown)
-
-	p.server = &http.Server{
-		Handler: mux,
-	}
-
-	ln, err := net.Listen("tcp", p.cfg.Addr)
-	if err != nil {
-		return err
-	}
-
-	p.mu.Lock()
-	p.started = true
-	p.mu.Unlock()
+	p.manager.ExtraRoute("POST /access/v1/evaluation", "authzen/evaluation", p.handleEvaluation)
+	p.manager.ExtraRoute("GET /.well-known/authzen-configuration", "authzen/well-known", p.handleWellKnown)
 
 	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateOK})
-
-	go func() {
-		if err := p.server.Serve(ln); err != nil && err != http.ErrServerClosed {
-			p.logger.Error("AuthZEN server error: %v", err)
-		}
-	}()
 
 	return nil
 }
 
-// Stop stops the AuthZEN HTTP server.
-func (p *AuthZenPlugin) Stop(ctx context.Context) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.server != nil {
-		p.server.Shutdown(ctx)
-	}
-	p.started = false
+// Stop marks the plugin as not ready. Routes registered via ExtraRoute
+// persist for the lifetime of the OPA process.
+func (p *AuthZenPlugin) Stop(_ context.Context) {
 	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateNotReady})
 }
 
@@ -222,8 +190,12 @@ func (p *AuthZenPlugin) logDecision(_ context.Context, input map[string]any, dec
 }
 
 // PDP Metadata endpoint (Section 9).
-func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, _ *http.Request) {
-	base := fmt.Sprintf("http://%s", p.cfg.Addr)
+func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	base := fmt.Sprintf("%s://%s", scheme, r.Host)
 	metadata := map[string]string{
 		"policy_decision_point":      base,
 		"access_evaluation_endpoint": base + "/access/v1/evaluation",

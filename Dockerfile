@@ -13,7 +13,7 @@ COPY --from=builder /build/opa-authzen-plugin /usr/local/bin/opa-authzen-plugin
 
 USER opa
 
-EXPOSE 8181 9292
+EXPOSE 8181
 
 ENTRYPOINT ["opa-authzen-plugin"]
 CMD ["run", "--server"]

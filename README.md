@@ -8,9 +8,9 @@ Use [GitHub Issues](https://github.com/kanywst/opa-authzen-plugin/issues) to req
 
 ## Overview
 
-OPA-AuthZEN extends OPA with an HTTP server that implements the AuthZEN [Access Evaluation API](https://openid.net/specs/authorization-api-1_0.html#section-6). You can use this version of OPA as a standard AuthZEN-compatible PDP (Policy Decision Point) without a separate proxy process.
+OPA-AuthZEN extends OPA with routes that implement the AuthZEN [Access Evaluation API](https://openid.net/specs/authorization-api-1_0.html#section-6). You can use this version of OPA as a standard AuthZEN-compatible PDP (Policy Decision Point) without a separate proxy process.
 
-The plugin follows the same architecture as [opa-envoy-plugin](https://github.com/open-policy-agent/opa-envoy-plugin) -- a single binary that embeds OPA and registers an additional plugin.
+The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181`) using OPA's `ExtraRoute` extension point. This means AuthZEN routes get OPA's built-in Prometheus metrics, OpenTelemetry tracing, and server authorization automatically — no separate port or listener required.
 
 ## Quick Start
 
@@ -40,7 +40,6 @@ The plugin follows the same architecture as [opa-envoy-plugin](https://github.co
     ```yaml
     plugins:
       authzen:
-        addr: ":9292"
         path: "authzen"
         decision: "allow"
     ```
@@ -51,12 +50,12 @@ The plugin follows the same architecture as [opa-envoy-plugin](https://github.co
     ./opa-authzen-plugin run --server --config-file config.yaml policy.rego
     ```
 
-    This starts OPA on `:8181` (default) and the AuthZEN server on `:9292`.
+    This starts OPA on `:8181` with the AuthZEN endpoints registered on the same server.
 
 5. Send an AuthZEN evaluation request.
 
     ```bash
-    curl -s -X POST http://localhost:9292/access/v1/evaluation \
+    curl -s -X POST http://localhost:8181/access/v1/evaluation \
       -H "Content-Type: application/json" \
       -d '{
         "subject": {"type": "user", "id": "alice", "properties": {"role": "admin"}},
@@ -74,7 +73,7 @@ The plugin follows the same architecture as [opa-envoy-plugin](https://github.co
 6. Check the well-known metadata endpoint.
 
     ```bash
-    curl -s http://localhost:9292/.well-known/authzen-configuration | jq .
+    curl -s http://localhost:8181/.well-known/authzen-configuration | jq .
     ```
 
 ## Docker
@@ -90,7 +89,6 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 
 | Key        | Type   | Default   | Description                                                     |
 | ---------- | ------ | --------- | --------------------------------------------------------------- |
-| `addr`     | string | `:9292`   | Address for the AuthZEN HTTP server                             |
 | `path`     | string | `authzen` | OPA package path to query                                       |
 | `decision` | string | `allow`   | Rule name within the package that produces the boolean decision |
 
