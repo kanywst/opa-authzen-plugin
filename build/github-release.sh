@@ -31,6 +31,11 @@ for asset in "${ASSET_DIR}"/opa_authzen_*; do
     ASSETS+=("$asset")
 done
 
+if [ ${#ASSETS[@]} -eq 0 ]; then
+    echo "Error: no assets found in ${ASSET_DIR}"
+    exit 1
+fi
+
 RELEASE_NOTES="release-notes.md"
 echo -e "${TAG_NAME}\n" > "${RELEASE_NOTES}"
 echo -e "See the [CHANGELOG](CHANGELOG.md) for details." >> "${RELEASE_NOTES}"
