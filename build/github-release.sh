@@ -5,7 +5,7 @@ usage() {
     echo "github-release.sh [--asset-dir=<path>] [--tag=<git tag>]"
 }
 
-TAG_NAME=${TAG_NAME}
+TAG_NAME=${TAG_NAME:?"Error: TAG_NAME must be set"}
 ASSET_DIR=${PWD:-"./"}
 
 for i in "$@"; do
@@ -27,6 +27,7 @@ done
 
 ASSETS=()
 for asset in "${ASSET_DIR}"/opa_authzen_*; do
+    [ -e "$asset" ] || continue
     ASSETS+=("$asset")
 done
 

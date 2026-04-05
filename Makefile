@@ -28,7 +28,7 @@ release:
 		ext=""; \
 		if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
 		echo "Building $$os/$$arch..."; \
-		GOOS=$$os GOARCH=$$arch $(GO) build -o $(RELEASE_DIR)/opa_authzen_$${os}_$${arch}$${ext} ./cmd/opa-authzen-plugin; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -o $(RELEASE_DIR)/opa_authzen_$${os}_$${arch}$${ext} ./cmd/opa-authzen-plugin; \
 	done
 
 .PHONY: clean
@@ -45,15 +45,15 @@ vet:
 	$(GO) vet ./...
 
 IMAGE := ghcr.io/kanywst/opa-authzen-plugin
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+DOCKER_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: docker-build
 docker-build:
-	docker build -t $(IMAGE):$(VERSION) .
+	docker build -t $(IMAGE):$(DOCKER_VERSION) .
 
 .PHONY: docker-run
 docker-run:
 	docker run --rm -p 8181:8181 \
 		-v $(PWD)/example:/example:ro \
-		$(IMAGE):$(VERSION) \
+		$(IMAGE):$(DOCKER_VERSION) \
 		run --server --config-file /example/config.yaml /example/policy.rego
