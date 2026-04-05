@@ -14,9 +14,27 @@ build:
 test:
 	$(GO) test -v ./...
 
+VERSION ?= $(shell ./build/get-opa-version.sh)$(shell ./build/get-plugin-rev.sh)
+RELEASE_DIR ?= _release/$(VERSION)
+
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+
+.PHONY: release
+release:
+	@mkdir -p $(RELEASE_DIR)
+	@for platform in $(PLATFORMS); do \
+		os=$${platform%/*}; \
+		arch=$${platform#*/}; \
+		ext=""; \
+		if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+		echo "Building $$os/$$arch..."; \
+		GOOS=$$os GOARCH=$$arch $(GO) build -o $(RELEASE_DIR)/opa_authzen_$${os}_$${arch}$${ext} ./cmd/opa-authzen-plugin; \
+	done
+
 .PHONY: clean
 clean:
 	rm -f $(BIN)
+	rm -rf _release
 
 .PHONY: fmt
 fmt:
