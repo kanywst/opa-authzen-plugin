@@ -35,7 +35,7 @@ docker-build:
 
 .PHONY: docker-run
 docker-run:
-	docker run --rm -p 8181:8181 -p 9292:9292 \
+	docker run --rm -p 8181:8181 \
 		-v $(PWD)/example:/example:ro \
 		$(IMAGE):$(VERSION) \
 		run --server --config-file /example/config.yaml /example/policy.rego
