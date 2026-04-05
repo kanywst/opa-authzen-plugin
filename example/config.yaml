@@ -1,5 +1,4 @@
 plugins:
   authzen:
-    addr: ":9292"
     path: "authzen"
     decision: "allow"

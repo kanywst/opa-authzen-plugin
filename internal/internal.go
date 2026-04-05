@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,14 +18,12 @@ import (
 const (
 	PluginName = "authzen"
 
-	defaultAddr     = ":9292"
 	defaultPath     = "authzen"
 	defaultDecision = "allow"
 )
 
 // Config represents the plugin configuration.
 type Config struct {
-	Addr     string `json:"addr"`
 	Path     string `json:"path"`
 	Decision string `json:"decision"`
 }
@@ -34,7 +31,6 @@ type Config struct {
 // Validate parses and validates the plugin configuration.
 func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 	cfg := Config{
-		Addr:     defaultAddr,
 		Path:     defaultPath,
 		Decision: defaultDecision,
 	}
@@ -48,12 +44,12 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 
 // AuthZenPlugin implements the AuthZEN Authorization API on top of OPA.
 type AuthZenPlugin struct {
-	manager  *plugins.Manager
-	cfg      Config
-	server   *http.Server
-	mu       sync.Mutex
-	logger   logging.Logger
-	started  bool
+	manager *plugins.Manager
+	cfg     Config
+	mu      sync.RWMutex
+	started bool
+	stopped bool
+	logger  logging.Logger
 }
 
 // New creates a new AuthZenPlugin.
@@ -65,47 +61,31 @@ func New(m *plugins.Manager, cfg *Config) *AuthZenPlugin {
 	}
 }
 
-// Start starts the AuthZEN HTTP server.
-func (p *AuthZenPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting AuthZEN plugin on %s", p.cfg.Addr)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /access/v1/evaluation", p.handleEvaluation)
-	mux.HandleFunc("GET /.well-known/authzen-configuration", p.handleWellKnown)
-
-	p.server = &http.Server{
-		Handler: mux,
-	}
-
-	ln, err := net.Listen("tcp", p.cfg.Addr)
-	if err != nil {
-		return err
-	}
-
+// Start registers the AuthZEN routes on OPA's HTTP server via ExtraRoute.
+func (p *AuthZenPlugin) Start(_ context.Context) error {
 	p.mu.Lock()
+	alreadyStarted := p.started
 	p.started = true
+	p.stopped = false
 	p.mu.Unlock()
 
-	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateOK})
+	if !alreadyStarted {
+		p.logger.Info("Starting AuthZEN plugin")
+		p.manager.ExtraRoute("POST /access/v1/evaluation", "authzen/evaluation", p.handleEvaluation)
+		p.manager.ExtraRoute("GET /.well-known/authzen-configuration", "authzen/well-known", p.handleWellKnown)
+	}
 
-	go func() {
-		if err := p.server.Serve(ln); err != nil && err != http.ErrServerClosed {
-			p.logger.Error("AuthZEN server error: %v", err)
-		}
-	}()
+	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateOK})
 
 	return nil
 }
 
-// Stop stops the AuthZEN HTTP server.
-func (p *AuthZenPlugin) Stop(ctx context.Context) {
+// Stop marks the plugin as not ready and rejects new requests. Routes
+// registered via ExtraRoute persist for the lifetime of the OPA process.
+func (p *AuthZenPlugin) Stop(_ context.Context) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.server != nil {
-		p.server.Shutdown(ctx)
-	}
-	p.started = false
+	p.stopped = true
+	p.mu.Unlock()
 	p.manager.UpdatePluginStatus(PluginName, &plugins.Status{State: plugins.StateNotReady})
 }
 
@@ -130,15 +110,30 @@ type evaluationResponse struct {
 	Context  json.RawMessage `json:"context,omitempty"`
 }
 
+func jsonError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request) {
-	// Echo X-Request-ID if present (Section 10.1.3).
+	// Echo X-Request-ID if present (Section 10.1.3). Must be set before
+	// any early return so it appears even on error responses.
 	if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
 		w.Header().Set("X-Request-ID", reqID)
 	}
 
+	p.mu.RLock()
+	stopped := p.stopped
+	p.mu.RUnlock()
+	if stopped {
+		jsonError(w, "plugin is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
 	var req evaluationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -146,29 +141,41 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	input := map[string]any{}
 	if req.Subject != nil {
 		var v any
-		json.Unmarshal(req.Subject, &v)
+		if err := json.Unmarshal(req.Subject, &v); err != nil {
+			jsonError(w, "invalid subject", http.StatusBadRequest)
+			return
+		}
 		input["subject"] = v
 	}
 	if req.Resource != nil {
 		var v any
-		json.Unmarshal(req.Resource, &v)
+		if err := json.Unmarshal(req.Resource, &v); err != nil {
+			jsonError(w, "invalid resource", http.StatusBadRequest)
+			return
+		}
 		input["resource"] = v
 	}
 	if req.Action != nil {
 		var v any
-		json.Unmarshal(req.Action, &v)
+		if err := json.Unmarshal(req.Action, &v); err != nil {
+			jsonError(w, "invalid action", http.StatusBadRequest)
+			return
+		}
 		input["action"] = v
 	}
 	if req.Context != nil {
 		var v any
-		json.Unmarshal(req.Context, &v)
+		if err := json.Unmarshal(req.Context, &v); err != nil {
+			jsonError(w, "invalid context", http.StatusBadRequest)
+			return
+		}
 		input["context"] = v
 	}
 
 	decision, err := p.eval(r.Context(), input)
 	if err != nil {
 		p.logger.Error("Evaluation error: %v", err)
-		http.Error(w, `{"error":"evaluation failed"}`, http.StatusInternalServerError)
+		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -184,13 +191,18 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 }
 
 func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, error) {
+	p.mu.RLock()
+	path := p.cfg.Path
+	decisionRule := p.cfg.Decision
+	p.mu.RUnlock()
+
 	txn, err := p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
 	if err != nil {
 		return false, fmt.Errorf("creating transaction: %w", err)
 	}
 	defer p.manager.Store.Abort(ctx, txn)
 
-	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(p.cfg.Path, "/", "."), p.cfg.Decision)
+	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), decisionRule)
 
 	r := rego.New(
 		rego.Compiler(p.manager.GetCompiler()),
@@ -218,12 +230,38 @@ func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, e
 }
 
 func (p *AuthZenPlugin) logDecision(_ context.Context, input map[string]any, decision bool) {
-	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", p.cfg.Path, p.cfg.Decision, decision, input)
+	p.mu.RLock()
+	path := p.cfg.Path
+	dec := p.cfg.Decision
+	p.mu.RUnlock()
+	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", path, dec, decision, input)
 }
 
 // PDP Metadata endpoint (Section 9).
-func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, _ *http.Request) {
-	base := fmt.Sprintf("http://%s", p.cfg.Addr)
+func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) {
+	p.mu.RLock()
+	stopped := p.stopped
+	p.mu.RUnlock()
+	if stopped {
+		jsonError(w, "plugin is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto == "http" || proto == "https" {
+		scheme = proto
+	}
+	host := r.Host
+	if host == "" {
+		host = r.Header.Get("X-Forwarded-Host")
+	}
+	if host == "" {
+		host = "localhost"
+	}
+	base := fmt.Sprintf("%s://%s", scheme, host)
 	metadata := map[string]string{
 		"policy_decision_point":      base,
 		"access_evaluation_endpoint": base + "/access/v1/evaluation",
