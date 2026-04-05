@@ -36,12 +36,8 @@ if [ ${#ASSETS[@]} -eq 0 ]; then
     exit 1
 fi
 
-RELEASE_NOTES="release-notes.md"
-echo -e "${TAG_NAME}\n" > "${RELEASE_NOTES}"
-echo -e "See the [CHANGELOG](CHANGELOG.md) for details." >> "${RELEASE_NOTES}"
-
 if gh release view "${TAG_NAME}" > /dev/null 2>&1; then
     gh release upload "${TAG_NAME}" "${ASSETS[@]}"
 else
-    gh release create "${TAG_NAME}" "${ASSETS[@]}" -F "${RELEASE_NOTES}" --draft --title "${TAG_NAME}"
+    gh release create "${TAG_NAME}" "${ASSETS[@]}" --generate-notes --draft --title "${TAG_NAME}"
 fi

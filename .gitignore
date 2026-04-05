@@ -1,3 +1,4 @@
 *.test
 .claude/
 /opa-authzen-plugin
+/_*
