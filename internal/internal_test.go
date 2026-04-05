@@ -220,12 +220,78 @@ func TestInvalidBody(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 
 	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString("not json"))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	p.handleEvaluation(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestMissingRequiredFields(t *testing.T) {
+	p := testPlugin(t, `package authzen
+		default allow = false
+	`)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"missing subject", `{"action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`},
+		{"missing action", `{"subject": {"type": "user", "id": "bob"}, "resource": {"type": "doc", "id": "1"}}`},
+		{"missing resource", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}}`},
+		{"all missing", `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			p.handleEvaluation(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestContentTypeValidation(t *testing.T) {
+	p := testPlugin(t, `package authzen
+		default allow = false
+	`)
+
+	body := `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+
+	tests := []struct {
+		name        string
+		contentType string
+		wantCode    int
+	}{
+		{"text/plain rejected", "text/plain", http.StatusBadRequest},
+		{"empty rejected", "", http.StatusBadRequest},
+		{"application/json accepted", "application/json", http.StatusOK},
+		{"application/json charset accepted", "application/json; charset=utf-8", http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			w := httptest.NewRecorder()
+
+			p.handleEvaluation(w, req)
+
+			if w.Code != tt.wantCode {
+				t.Fatalf("expected %d, got %d: %s", tt.wantCode, w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
@@ -418,6 +484,7 @@ func TestStartAfterStopResetsState(t *testing.T) {
 	// After Stop, requests should be rejected.
 	body := `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
 	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	p.handleEvaluation(w, req)
 	if w.Code != http.StatusServiceUnavailable {
@@ -429,6 +496,7 @@ func TestStartAfterStopResetsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	req = httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	p.handleEvaluation(w, req)
 	if w.Code != http.StatusOK {

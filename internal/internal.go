@@ -131,38 +131,41 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Content-Type: application/json is required (Section 10.1).
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
 	var req evaluationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Build the input for OPA from the AuthZEN request.
+	// subject, action, resource are required (Section 6.1).
+	if req.Subject == nil || req.Action == nil || req.Resource == nil {
+		jsonError(w, "subject, action, and resource are required", http.StatusBadRequest)
+		return
+	}
+
 	input := map[string]any{}
-	if req.Subject != nil {
-		var v any
-		if err := json.Unmarshal(req.Subject, &v); err != nil {
-			jsonError(w, "invalid subject", http.StatusBadRequest)
-			return
-		}
-		input["subject"] = v
+	var v any
+	if err := json.Unmarshal(req.Subject, &v); err != nil {
+		jsonError(w, "invalid subject", http.StatusBadRequest)
+		return
 	}
-	if req.Resource != nil {
-		var v any
-		if err := json.Unmarshal(req.Resource, &v); err != nil {
-			jsonError(w, "invalid resource", http.StatusBadRequest)
-			return
-		}
-		input["resource"] = v
+	input["subject"] = v
+	if err := json.Unmarshal(req.Resource, &v); err != nil {
+		jsonError(w, "invalid resource", http.StatusBadRequest)
+		return
 	}
-	if req.Action != nil {
-		var v any
-		if err := json.Unmarshal(req.Action, &v); err != nil {
-			jsonError(w, "invalid action", http.StatusBadRequest)
-			return
-		}
-		input["action"] = v
+	input["resource"] = v
+	if err := json.Unmarshal(req.Action, &v); err != nil {
+		jsonError(w, "invalid action", http.StatusBadRequest)
+		return
 	}
+	input["action"] = v
 	if req.Context != nil {
 		var v any
 		if err := json.Unmarshal(req.Context, &v); err != nil {
@@ -172,15 +175,14 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		input["context"] = v
 	}
 
-	decision, err := p.eval(r.Context(), input)
+	decision, path, decisionRule, err := p.eval(r.Context(), input)
 	if err != nil {
 		p.logger.Error("Evaluation error: %v", err)
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
 
-	// Log the decision.
-	p.logDecision(r.Context(), input, decision)
+	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", path, decisionRule, decision, input)
 
 	resp := evaluationResponse{
 		Decision: decision,
@@ -190,7 +192,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(resp)
 }
 
-func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, error) {
+func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, string, string, error) {
 	p.mu.RLock()
 	path := p.cfg.Path
 	decisionRule := p.cfg.Decision
@@ -198,7 +200,7 @@ func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, e
 
 	txn, err := p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
 	if err != nil {
-		return false, fmt.Errorf("creating transaction: %w", err)
+		return false, path, decisionRule, fmt.Errorf("creating transaction: %w", err)
 	}
 	defer p.manager.Store.Abort(ctx, txn)
 
@@ -214,27 +216,19 @@ func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, e
 
 	rs, err := r.Eval(ctx)
 	if err != nil {
-		return false, fmt.Errorf("evaluating policy: %w", err)
+		return false, path, decisionRule, fmt.Errorf("evaluating policy: %w", err)
 	}
 
 	if len(rs) == 0 || len(rs[0].Expressions) == 0 {
-		return false, nil
+		return false, path, decisionRule, nil
 	}
 
 	decision, ok := rs[0].Expressions[0].Value.(bool)
 	if !ok {
-		return false, nil
+		return false, path, decisionRule, nil
 	}
 
-	return decision, nil
-}
-
-func (p *AuthZenPlugin) logDecision(_ context.Context, input map[string]any, decision bool) {
-	p.mu.RLock()
-	path := p.cfg.Path
-	dec := p.cfg.Decision
-	p.mu.RUnlock()
-	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", path, dec, decision, input)
+	return decision, path, decisionRule, nil
 }
 
 // PDP Metadata endpoint (Section 9).
