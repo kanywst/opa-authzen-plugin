@@ -132,7 +132,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Content-Type: application/json is required (Section 10.1).
-	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+	if ct := r.Header.Get("Content-Type"); ct != "application/json" && !strings.HasPrefix(ct, "application/json;") {
 		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
 	}
@@ -177,7 +177,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 
 	decision, path, decisionRule, err := p.eval(r.Context(), input)
 	if err != nil {
-		p.logger.Error("Evaluation error: %v", err)
+		p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}

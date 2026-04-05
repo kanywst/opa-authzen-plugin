@@ -274,6 +274,7 @@ func TestContentTypeValidation(t *testing.T) {
 	}{
 		{"text/plain rejected", "text/plain", http.StatusBadRequest},
 		{"empty rejected", "", http.StatusBadRequest},
+		{"json-patch rejected", "application/json-patch+json", http.StatusBadRequest},
 		{"application/json accepted", "application/json", http.StatusOK},
 		{"application/json charset accepted", "application/json; charset=utf-8", http.StatusOK},
 	}
