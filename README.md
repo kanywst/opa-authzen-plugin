@@ -70,7 +70,31 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
     {"decision":true}
     ```
 
-6. Check the well-known metadata endpoint.
+6. Send a batch evaluation request.
+
+    ```bash
+    curl -s -X POST http://localhost:8181/access/v1/evaluations \
+      -H "Content-Type: application/json" \
+      -d '{
+        "subject": {"type": "user", "id": "alice", "properties": {"role": "admin"}},
+        "action": {"name": "read"},
+        "evaluations": [
+          {"resource": {"type": "document", "id": "doc-1"}},
+          {"resource": {"type": "document", "id": "doc-2"}},
+          {"action": {"name": "delete"}, "resource": {"type": "document", "id": "doc-3"}}
+        ]
+      }'
+    ```
+
+    The response should be:
+
+    ```json
+    {"evaluations":[{"decision":true},{"decision":true},{"decision":true}]}
+    ```
+
+    Top-level `subject`, `action`, `resource`, and `context` serve as defaults for each item in the `evaluations` array. Individual items can override any of these fields. See [Section 7](https://openid.net/specs/authorization-api-1_0.html#section-7) of the AuthZEN spec for details on evaluation semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`).
+
+7. Check the well-known metadata endpoint.
 
     ```bash
     curl -s http://localhost:8181/.well-known/authzen-configuration | jq .
