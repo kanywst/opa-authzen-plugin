@@ -180,10 +180,11 @@ func mergeField(deflt, override json.RawMessage) json.RawMessage {
 }
 
 // evalErrorResponse builds a per-evaluation error response (Section 7.2.1).
-func evalErrorResponse(status int, message string) evaluationResponse {
+// Per Section 10.2, error objects must contain "code" and "message" fields.
+func evalErrorResponse(code string, message string) evaluationResponse {
 	errCtx, _ := json.Marshal(map[string]any{
 		"error": map[string]any{
-			"status":  status,
+			"code":    code,
 			"message": message,
 		},
 	})
@@ -247,16 +248,24 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 }
 
 func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, string, string, error) {
+	return p.evalWithTxn(ctx, nil, input)
+}
+
+// evalWithTxn evaluates a policy query with an optional existing transaction.
+func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction, input map[string]any) (bool, string, string, error) {
 	p.mu.RLock()
 	path := p.cfg.Path
 	decisionRule := p.cfg.Decision
 	p.mu.RUnlock()
 
-	txn, err := p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
-	if err != nil {
-		return false, path, decisionRule, fmt.Errorf("creating transaction: %w", err)
+	var err error
+	if txn == nil {
+		txn, err = p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
+		if err != nil {
+			return false, path, decisionRule, fmt.Errorf("creating transaction: %w", err)
+		}
+		defer p.manager.Store.Abort(ctx, txn)
 	}
-	defer p.manager.Store.Abort(ctx, txn)
 
 	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), decisionRule)
 
@@ -345,6 +354,15 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Create a single transaction for the entire batch.
+	txn, err := p.manager.Store.NewTransaction(r.Context(), storage.TransactionParams{})
+	if err != nil {
+		p.logger.Error("AuthZEN batch evaluation: failed to create transaction: %v", err)
+		jsonError(w, "evaluation failed", http.StatusInternalServerError)
+		return
+	}
+	defer p.manager.Store.Abort(r.Context(), txn)
+
 	results := make([]evaluationResponse, 0, len(req.Evaluations))
 
 	for _, item := range req.Evaluations {
@@ -356,7 +374,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 
 		if merged.Subject == nil || merged.Action == nil || merged.Resource == nil {
-			results = append(results, evalErrorResponse(400, "subject, action, and resource are required"))
+			results = append(results, evalErrorResponse("invalid_request", "subject, action, and resource are required"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
@@ -365,17 +383,17 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 		input, errMsg := buildInput(merged.Subject, merged.Action, merged.Resource, merged.Context)
 		if errMsg != "" {
-			results = append(results, evalErrorResponse(400, errMsg))
+			results = append(results, evalErrorResponse("invalid_request", errMsg))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
 			continue
 		}
 
-		decision, path, decisionRule, err := p.eval(r.Context(), input)
+		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
 		if err != nil {
 			p.logger.Error("AuthZEN batch evaluation error: path=%s.%s error=%v", path, decisionRule, err)
-			results = append(results, evalErrorResponse(500, "evaluation failed"))
+			results = append(results, evalErrorResponse("evaluation_error", "evaluation failed"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
