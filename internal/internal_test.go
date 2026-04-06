@@ -880,12 +880,15 @@ func TestEvaluationsBackwardCompatEmptyArray(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Should return single evaluation response (no evaluations array)
-	var resp evaluationResponse
+	// Plural endpoint returns batch response format even for single evaluation
+	var resp evaluationsResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Decision {
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation in batch, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
 		t.Fatal("expected decision=true in backward-compat mode")
 	}
 }
@@ -907,11 +910,15 @@ func TestEvaluationsBackwardCompatNoArray(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var resp evaluationResponse
+	// Plural endpoint returns batch response format even for single evaluation
+	var resp evaluationsResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Decision {
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation in batch, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
 		t.Fatal("expected decision=true in backward-compat mode")
 	}
 }

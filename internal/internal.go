@@ -180,11 +180,10 @@ func mergeField(deflt, override json.RawMessage) json.RawMessage {
 }
 
 // evalErrorResponse builds a per-evaluation error response (Section 7.2.1).
-// Per Section 10.2, error objects must contain "code" and "message" fields.
-func evalErrorResponse(code string, message string) evaluationResponse {
+func evalErrorResponse(status int, message string) evaluationResponse {
 	errCtx, _ := json.Marshal(map[string]any{
 		"error": map[string]any{
-			"code":    code,
+			"status":  status,
 			"message": message,
 		},
 	})
@@ -338,7 +337,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(evaluationResponse{Decision: decision})
+		json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision}}})
 		return
 	}
 
@@ -374,7 +373,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 
 		if merged.Subject == nil || merged.Action == nil || merged.Resource == nil {
-			results = append(results, evalErrorResponse("invalid_request", "subject, action, and resource are required"))
+			results = append(results, evalErrorResponse(400, "subject, action, and resource are required"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
@@ -383,7 +382,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 		input, errMsg := buildInput(merged.Subject, merged.Action, merged.Resource, merged.Context)
 		if errMsg != "" {
-			results = append(results, evalErrorResponse("invalid_request", errMsg))
+			results = append(results, evalErrorResponse(400, errMsg))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
@@ -393,7 +392,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
 		if err != nil {
 			p.logger.Error("AuthZEN batch evaluation error: path=%s.%s error=%v", path, decisionRule, err)
-			results = append(results, evalErrorResponse("evaluation_error", "evaluation failed"))
+			results = append(results, evalErrorResponse(500, "evaluation failed"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
 			}
