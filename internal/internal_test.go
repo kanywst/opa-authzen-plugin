@@ -439,6 +439,626 @@ func TestErrorResponseContentType(t *testing.T) {
 	}
 }
 
+// Batch Evaluations
+
+func postEvaluations(p *AuthZenPlugin, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluations(w, req)
+	return w
+}
+
+func decodeBatchResp(t *testing.T, w *httptest.ResponseRecorder) evaluationsResponse {
+	t.Helper()
+	var resp evaluationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode batch response: %v\nbody: %s", err, w.Body.String())
+	}
+	return resp
+}
+
+func TestEvaluationsBatchAllAllow(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}},
+			{"resource": {"type": "doc", "id": "2"}}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2 evaluations, got %d", len(resp.Evaluations))
+	}
+	for i, e := range resp.Evaluations {
+		if !e.Decision {
+			t.Fatalf("evaluation[%d]: expected true", i)
+		}
+	}
+}
+
+func TestEvaluationsBatchAllDeny(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "bob"},
+		"action": {"name": "read"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}},
+			{"resource": {"type": "doc", "id": "2"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	for i, e := range resp.Evaluations {
+		if e.Decision {
+			t.Fatalf("evaluation[%d]: expected false", i)
+		}
+	}
+}
+
+func TestEvaluationsBatchMixed(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "bob"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false")
+	}
+}
+
+func TestEvaluationsDefaultSubject(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"evaluations": [
+			{"action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}},
+			{"action": {"name": "write"}, "resource": {"type": "doc", "id": "2"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2, got %d", len(resp.Evaluations))
+	}
+	for i, e := range resp.Evaluations {
+		if !e.Decision {
+			t.Fatalf("evaluation[%d]: expected true (subject inherited)", i)
+		}
+	}
+}
+
+func TestEvaluationsOverrideSubject(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{},
+			{"subject": {"type": "user", "id": "bob"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true (inherited alice)")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (overridden to bob)")
+	}
+}
+
+func TestEvaluationsDefaultContext(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.context.env == "prod"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"context": {"env": "prod"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}},
+			{"resource": {"type": "doc", "id": "2"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	for i, e := range resp.Evaluations {
+		if !e.Decision {
+			t.Fatalf("evaluation[%d]: expected true (context inherited)", i)
+		}
+	}
+}
+
+func TestEvaluationsOverrideContext(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.context.env == "prod"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"context": {"env": "prod"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}},
+			{"resource": {"type": "doc", "id": "2"}, "context": {"env": "staging"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true (inherited prod)")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (overridden to staging)")
+	}
+}
+
+func TestEvaluationsMissingRequiredFieldPerEval(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	// No top-level subject, second eval has no subject -> per-eval error
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (missing subject)")
+	}
+	if resp.Evaluations[1].Context == nil {
+		t.Fatal("evaluation[1]: expected context with error")
+	}
+	var ctx map[string]any
+	json.Unmarshal(resp.Evaluations[1].Context, &ctx)
+	if ctx["error"] == nil {
+		t.Fatal("evaluation[1]: expected context.error")
+	}
+}
+
+func TestEvaluationsTopLevelDefaultSatisfiesRequired(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{},
+			{}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	for i, e := range resp.Evaluations {
+		if !e.Decision {
+			t.Fatalf("evaluation[%d]: expected true (all defaults from top-level)", i)
+		}
+	}
+}
+
+func TestEvaluationsExecuteAll(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "execute_all"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "bob"}},
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "carol"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 3 {
+		t.Fatalf("execute_all: expected 3 results, got %d", len(resp.Evaluations))
+	}
+	if resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected false")
+	}
+	if !resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected true")
+	}
+	if resp.Evaluations[2].Decision {
+		t.Fatal("evaluation[2]: expected false")
+	}
+}
+
+func TestEvaluationsDenyOnFirstDeny(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "deny_on_first_deny"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "bob"}},
+			{"subject": {"type": "user", "id": "alice"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("deny_on_first_deny: expected 2 results (short-circuit), got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (first deny)")
+	}
+}
+
+func TestEvaluationsDenyOnFirstDenyAllPermit(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "deny_on_first_deny"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "alice"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected all 2 results (no short-circuit), got %d", len(resp.Evaluations))
+	}
+}
+
+func TestEvaluationsPermitOnFirstPermit(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "permit_on_first_permit"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "bob"}},
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "carol"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("permit_on_first_permit: expected 2 results (short-circuit), got %d", len(resp.Evaluations))
+	}
+	if resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected false")
+	}
+	if !resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected true (first permit)")
+	}
+}
+
+func TestEvaluationsPermitOnFirstPermitAllDeny(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "permit_on_first_permit"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "bob"}},
+			{"subject": {"type": "user", "id": "carol"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected all 2 results (no short-circuit), got %d", len(resp.Evaluations))
+	}
+}
+
+func TestEvaluationsInvalidSemantic(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"options": {"evaluations_semantic": "invalid_value"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}}
+		]
+	}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid semantic, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsBackwardCompatEmptyArray(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": []
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	// Should return single evaluation response (no evaluations array)
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Fatal("expected decision=true in backward-compat mode")
+	}
+}
+
+func TestEvaluationsBackwardCompatNoArray(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"}
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Fatal("expected decision=true in backward-compat mode")
+	}
+}
+
+func TestEvaluationsBackwardCompatMissingRequired(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"}
+	}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsContentType(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	body := `{"subject": {"type": "user", "id": "alice"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+	p.handleEvaluations(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsStoppedPlugin(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+	p.Stop(context.Background())
+
+	w := postEvaluations(p, `{"subject": {"type": "user", "id": "alice"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsXRequestID(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	body := `{"subject": {"type": "user", "id": "alice"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "batch-123")
+	w := httptest.NewRecorder()
+	p.handleEvaluations(w, req)
+
+	if got := w.Header().Get("X-Request-ID"); got != "batch-123" {
+		t.Fatalf("expected X-Request-ID=batch-123, got %q", got)
+	}
+}
+
+func TestEvaluationsInvalidBody(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluations(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsResponseOmitsTopLevelDecision(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"evaluations": [
+			{"resource": {"type": "doc", "id": "1"}}
+		]
+	}`)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["decision"]; ok {
+		t.Fatal("batch response should not contain top-level 'decision' key")
+	}
+	if _, ok := raw["evaluations"]; !ok {
+		t.Fatal("batch response must contain 'evaluations' key")
+	}
+}
+
+func TestEvaluationsShortCircuitOnError(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	// deny_on_first_deny: second eval has missing subject (error = decision false) -> short-circuit
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "deny_on_first_deny"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{},
+			{"subject": {"type": "user", "id": "alice"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2 results (short-circuit on error), got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (error)")
+	}
+}
+
+func TestWellKnownIncludesEvaluationsEndpoint(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	var metadata map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	expected := "http://localhost:8181/access/v1/evaluations"
+	if metadata["access_evaluations_endpoint"] != expected {
+		t.Fatalf("expected access_evaluations_endpoint=%s, got %s", expected, metadata["access_evaluations_endpoint"])
+	}
+}
+
 func TestStartRegistersExtraRoutes(t *testing.T) {
 	p := testPlugin(t, `package authzen
 		default allow = false
