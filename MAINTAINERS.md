@@ -4,9 +4,9 @@ This page lists the maintainers of opa-authzen-plugin and their areas of respons
 
 ## Maintainers
 
-| Name | GitHub | Email | Responsibility |
-|------|--------|-------|-----------------|
-| Takuma Niwa | [@kanywst](https://github.com/kanywst) | niwatakuma@icloud.com | Project lead, architecture, AuthZEN specification compliance |
+| GitHub                                 | Email               |
+| -------------------------------------- | ------------------- |
+| [@kanywst](https://github.com/kanywst) | kanywst12@gmail.com |
 
 ## Contribution Process
 
