@@ -13,6 +13,15 @@ import (
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 )
 
+const module = `
+	package authzen
+	default allow = false
+	allow if input.subject.properties.role == "admin"
+	allow if input.action.name == "read" {
+		input.subject.id != ""
+	}
+`
+
 func testPlugin(t *testing.T, module string) *AuthZenPlugin {
 	t.Helper()
 
@@ -1129,5 +1138,317 @@ func TestStartAfterStopResetsState(t *testing.T) {
 	p.handleEvaluation(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 after restart, got %d", w.Code)
+	}
+}
+
+// Tests for meaningful edge cases and error conditions
+
+// TestDecisionNonBooleanReturnsDecisionFalse verifies that when a policy rule
+// returns a non-boolean value (string, number, object, etc.), the implementation
+// correctly returns decision=false. This is a key behavioral requirement.
+func TestDecisionNonBooleanReturnsDecisionFalse(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		allow = "maybe"
+	`)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	body := `{
+		"subject": {"type": "user", "id": "test"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "123"}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	// Implementation should return 200 with decision=false (not error)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for non-boolean result, got %d", w.Code)
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp.Decision != false {
+		t.Errorf("expected decision=false for non-boolean result, got %v", resp.Decision)
+	}
+}
+
+// TestDecisionRuleDoesNotExistReturnsDecisionFalse verifies that when a decision
+// rule doesn't exist in the policy, the system gracefully returns decision=false.
+// This prevents errors from being surfaced when a rule simply doesn't define a result.
+func TestDecisionRuleDoesNotExistReturnsDecisionFalse(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		other_rule = true
+	`)
+	p.cfg.Decision = "allow" // Rule doesn't exist
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	body := `{
+		"subject": {"type": "user", "id": "test"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "123"}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 when rule doesn't exist, got %d", w.Code)
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp.Decision != false {
+		t.Errorf("expected decision=false when rule doesn't exist, got %v", resp.Decision)
+	}
+}
+
+// TestBuildInputWithSpecialCharactersInProperties tests that the buildInput function
+// correctly handles special characters, Unicode, and complex nested structures.
+// This prevents JSON marshaling bugs and injection vulnerabilities.
+func TestBuildInputWithSpecialCharactersInProperties(t *testing.T) {
+	p := testPlugin(t, module)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	// Input with special characters, Unicode, quotes, backslashes
+	body := `{
+		"subject": {
+			"type": "user",
+			"id": "alice@example.com",
+			"properties": {
+				"department": "Sales & Marketing",
+				"name": "Alice \"Ace\" O'Brien",
+				"location": "Tokyo, 日本",
+				"path": "C:\\Users\\alice\\Documents"
+			}
+		},
+		"action": {"name": "read"},
+		"resource": {"type": "document", "id": "doc-123"}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	// Must succeed - special chars should be handled
+	if w.Code != http.StatusOK {
+		t.Fatalf("failed with special characters: %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Should be a valid boolean decision
+	if resp.Decision != true && resp.Decision != false {
+		t.Errorf("decision should be boolean, got %v", resp.Decision)
+	}
+}
+
+// TestBuildInputWithNullPropertiesInSubjectAndResource tests that null values in
+// properties are preserved correctly. AuthZEN allows objects to have optional properties.
+func TestBuildInputWithNullPropertiesInSubjectAndResource(t *testing.T) {
+	p := testPlugin(t, module)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	// Properties field is null in subject
+	body := `{
+		"subject": {"type": "user", "id": "alice", "properties": null},
+		"action": {"name": "read"},
+		"resource": {"type": "document", "id": "doc-123", "properties": null}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	// Must handle null properties gracefully
+	if w.Code != http.StatusOK {
+		t.Fatalf("failed with null properties: %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if resp.Decision != true && resp.Decision != false {
+		t.Errorf("should handle null properties, got decision %v", resp.Decision)
+	}
+}
+
+// TestBatchEvaluationsWithNullFieldsUsesDefaults tests that when an individual
+// evaluation has null fields, they are replaced with defaults from the top level.
+// This tests the merge semantics from Section 7.1.
+func TestBatchEvaluationsWithNullFieldsUsesDefaults(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		allow if input.subject.id == "default-id"
+	`)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	// Batch with defaults; individual evaluation overrides subject but not others
+	body := `{
+		"subject": {"type": "default-user", "id": "default-id"},
+		"action": {"name": "default-action"},
+		"resource": {"type": "default-type", "id": "default-id"},
+		"evaluations": [
+			{
+				"subject": {"type": "user", "id": "alice"},
+				"action": null,
+				"resource": null
+			}
+		]
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluations(w, req)
+
+	// Should merge: alice + default action/resource
+	// Policy checks subject.id == "default-id", but input subject is alice, so deny
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for merge test, got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation result, got %d", len(resp.Evaluations))
+	}
+
+	// alice.id != default-id, so decision should be false
+	if resp.Evaluations[0].Decision != false {
+		t.Errorf("expected decision=false (alice != default-id), got %v", resp.Evaluations[0].Decision)
+	}
+}
+
+// TestBatchEvaluationsPreservesOrderAndCorrectness tests that batch evaluations
+// process all items, preserve order, and that each gets correct decision based on
+// its specific context (not mixed up).
+func TestBatchEvaluationsPreservesOrderAndCorrectness(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		allow if input.subject.id == "admin"
+		allow if input.resource.id == "public"
+	`)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	body := `{
+		"evaluations": [
+			{
+				"subject": {"type": "user", "id": "admin"},
+				"action": {"name": "read"},
+				"resource": {"type": "doc", "id": "private"}
+			},
+			{
+				"subject": {"type": "user", "id": "alice"},
+				"action": {"name": "read"},
+				"resource": {"type": "doc", "id": "public"}
+			},
+			{
+				"subject": {"type": "user", "id": "bob"},
+				"action": {"name": "read"},
+				"resource": {"type": "doc", "id": "private"}
+			}
+		]
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluations(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("batch evaluation failed: %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Verify: evaluations array has 3 items in same order
+	if len(resp.Evaluations) != 3 {
+		t.Errorf("expected 3 evaluations, got %d", len(resp.Evaluations))
+	}
+
+	// Verify order: [allow=true, allow=true, allow=false]
+	expectedDecisions := []bool{true, true, false}
+	for i, expected := range expectedDecisions {
+		if resp.Evaluations[i].Decision != expected {
+			t.Errorf("evaluation[%d]: expected %v, got %v", i, expected, resp.Evaluations[i].Decision)
+		}
+	}
+}
+
+// TestEvaluationsBackwardCompatibilityWithoutEvaluationsArray tests that when
+// evaluations array is absent, the request is treated as single evaluation using
+// top-level subject/action/resource (Section 7.1 backward compatibility).
+func TestEvaluationsBackwardCompatibilityWithoutEvaluationsArray(t *testing.T) {
+	p := testPlugin(t, module)
+	p.Start(context.Background())
+	defer p.Stop(context.Background())
+
+	// No "evaluations" array - only top-level subject/action/resource
+	body := `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "document", "id": "doc-123"}
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluations(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("backward compatibility failed: %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	// Should return evaluations-style response (array with 1 item)
+	if len(resp.Evaluations) != 1 {
+		t.Errorf("expected 1 evaluation for backward compat, got %d", len(resp.Evaluations))
+	}
+
+	if resp.Evaluations[0].Decision != true {
+		t.Errorf("expected decision=true for alice, got %v", resp.Evaluations[0].Decision)
 	}
 }

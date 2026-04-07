@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in opa-authzen-plugin, please **do not** open a public issue. Instead, please email the maintainer directly:
 
-- kanywst@icloud.com
+- kanywst12@gmail.com
 
 Please include:
 - Description of the vulnerability
@@ -16,8 +16,8 @@ We will acknowledge receipt of your report within 48 hours and work with you to 
 
 ## Supported Versions
 
-| Version | Status | Support Until |
-|---------|--------|----------------|
+| Version | Status | Support Until                               |
+| ------- | ------ | ------------------------------------------- |
 | v0.1.x  | Latest | Updates as long as no critical issues arise |
 
 ## Security Considerations

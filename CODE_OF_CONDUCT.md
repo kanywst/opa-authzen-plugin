@@ -16,7 +16,7 @@ Our community operates under these core values:
 
 If you experience or witness unacceptable behavior, please report it to the maintainers at:
 
-- kanywst@icloud.com
+- kanywst12@gmail.com
 
 All reports will be handled with confidentiality and appropriate action will be taken.
 
