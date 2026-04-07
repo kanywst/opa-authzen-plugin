@@ -1,0 +1,42 @@
+name: Configure Branch Protection
+
+# Manual trigger only (GitHub Actions secrets & permissions required)
+on:
+  workflow_dispatch:
+
+permissions:
+  repo: write
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure main branch protection
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const repo = context.repo;
+            
+            // Main branch protection rules
+            await github.rest.repos.updateBranchProtection({
+              owner: repo.owner,
+              repo: repo.repo,
+              branch: 'main',
+              required_status_checks: {
+                strict: true,
+                contexts: ['build', 'test', 'lint']
+              },
+              required_pull_request_reviews: {
+                dismiss_stale_reviews: true,
+                require_code_owner_reviews: false,
+                required_approving_review_count: 0
+              },
+              enforce_admins: false,
+              allow_force_pushes: false,
+              allow_deletions: false,
+              allow_auto_merge: true,
+              required_linear_history: false
+            });
+            
+            console.log('✓ Branch protection configured for main');
