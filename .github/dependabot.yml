@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Go dependencies
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - kanywst
+    labels:
+      - dependencies
+      - go
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+    reviewers:
+      - kanywst
+    labels:
+      - dependencies
+      - ci-cd
