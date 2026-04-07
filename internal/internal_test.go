@@ -1259,9 +1259,9 @@ func TestBuildInputWithSpecialCharactersInProperties(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	// Should be a valid boolean decision
-	if resp.Decision != true && resp.Decision != false {
-		t.Errorf("decision should be boolean, got %v", resp.Decision)
+	// Special characters should be handled; policy allows read action with non-empty subject.id
+	if !resp.Decision {
+		t.Errorf("expected decision=true for input with special characters, got %v", resp.Decision)
 	}
 }
 
@@ -1295,8 +1295,9 @@ func TestBuildInputWithNullPropertiesInSubjectAndResource(t *testing.T) {
 		t.Fatalf("failed to unmarshal response: %v", err)
 	}
 
-	if resp.Decision != true && resp.Decision != false {
-		t.Errorf("should handle null properties, got decision %v", resp.Decision)
+	// Null properties should be handled gracefully; alice with read action should be allowed
+	if !resp.Decision {
+		t.Errorf("expected decision=true when handling null properties, got %v", resp.Decision)
 	}
 }
 
