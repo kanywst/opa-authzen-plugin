@@ -1518,8 +1518,8 @@ func TestEvaluationsRejectsExcessiveBatchSize(t *testing.T) {
 
 	w := postEvaluations(p, body)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for batch size %d, got %d", maxBatchSize+1, w.Code)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for batch size %d, got %d", maxBatchSize+1, w.Code)
 	}
 }
 

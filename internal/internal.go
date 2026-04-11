@@ -360,7 +360,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 	// Limit the number of evaluations to protect against resource
 	// exhaustion (Section 11.7).
 	if len(req.Evaluations) > maxBatchSize {
-		jsonError(w, fmt.Sprintf("evaluations array exceeds maximum size of %d", maxBatchSize), http.StatusBadRequest)
+		jsonError(w, fmt.Sprintf("evaluations array exceeds maximum size of %d", maxBatchSize), http.StatusRequestEntityTooLarge)
 		return
 	}
 
