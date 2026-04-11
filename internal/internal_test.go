@@ -198,16 +198,16 @@ func TestWellKnown(t *testing.T) {
 		t.Fatalf("expected Content-Type=application/json, got %q", ct)
 	}
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://localhost:8181" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://localhost:8181" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
-	if metadata["access_evaluation_endpoint"] != "http://localhost:8181/access/v1/evaluation" {
-		t.Fatalf("unexpected endpoint: %s", metadata["access_evaluation_endpoint"])
+	if metadata.AccessEvaluationEndpoint != "http://localhost:8181/access/v1/evaluation" {
+		t.Fatalf("unexpected endpoint: %s", metadata.AccessEvaluationEndpoint)
 	}
 }
 
@@ -368,13 +368,13 @@ func TestWellKnownXForwardedHost(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://pdp.example.com" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://pdp.example.com" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -388,13 +388,13 @@ func TestWellKnownXForwardedProto(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "https://pdp.example.com" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "https://pdp.example.com" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -408,13 +408,13 @@ func TestWellKnownXForwardedProtoInvalid(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://pdp.example.com" {
-		t.Fatalf("expected invalid proto to be ignored, got pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://pdp.example.com" {
+		t.Fatalf("expected invalid proto to be ignored, got pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -427,13 +427,13 @@ func TestWellKnownEmptyHostFallback(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://localhost" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://localhost" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -1094,13 +1094,34 @@ func TestWellKnownIncludesEvaluationsEndpoint(t *testing.T) {
 	w := httptest.NewRecorder()
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 	expected := "http://localhost:8181/access/v1/evaluations"
-	if metadata["access_evaluations_endpoint"] != expected {
-		t.Fatalf("expected access_evaluations_endpoint=%s, got %s", expected, metadata["access_evaluations_endpoint"])
+	if metadata.AccessEvaluationsEndpoint != expected {
+		t.Fatalf("expected access_evaluations_endpoint=%s, got %s", expected, metadata.AccessEvaluationsEndpoint)
+	}
+}
+
+func TestWellKnownIncludesSupportedCapabilities(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.SupportedCapabilities == nil {
+		t.Fatal("expected supported_capabilities in metadata")
+	}
+	// Currently no capabilities are declared, so the array should be empty.
+	if len(metadata.SupportedCapabilities) != 0 {
+		t.Fatalf("expected empty supported_capabilities, got %v", metadata.SupportedCapabilities)
 	}
 }
 
@@ -1389,6 +1410,74 @@ func TestBatchEvaluationsWithNullFieldsUsesDefaults(t *testing.T) {
 	// alice.id != default-id, so decision should be false
 	if resp.Evaluations[0].Decision != false {
 		t.Errorf("expected decision=false (alice != default-id), got %v", resp.Evaluations[0].Decision)
+	}
+}
+
+// TestBatchEvaluationsNullFieldsFallBackToDefaults verifies that explicit JSON null
+// in an evaluation item falls back to the top-level default (Section 7.1.1).
+func TestBatchEvaluationsNullFieldsFallBackToDefaults(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		allow if input.subject.id == "default-id"
+	`)
+
+	// action and resource are explicitly null -> should use top-level defaults.
+	// subject is also null -> should use top-level default ("default-id") -> allow.
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "default-id"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{
+				"subject": null,
+				"action": null,
+				"resource": null
+			}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("expected decision=true (null fields should fall back to top-level defaults)")
+	}
+}
+
+// TestBatchEvaluationsNullDefaultAndNullOverrideReturnsError verifies that when
+// both the top-level default and the per-evaluation override are JSON null,
+// the required-field validation catches it as a per-evaluation error.
+func TestBatchEvaluationsNullDefaultAndNullOverrideReturnsError(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": null,
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{"subject": null}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation, got %d", len(resp.Evaluations))
+	}
+	if resp.Evaluations[0].Decision {
+		t.Fatal("expected decision=false for null subject (both default and override)")
+	}
+	if resp.Evaluations[0].Context == nil {
+		t.Fatal("expected context with error for missing required field")
 	}
 }
 
