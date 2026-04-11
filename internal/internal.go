@@ -155,6 +155,14 @@ type evaluationsResponse struct {
 	Evaluations []evaluationResponse `json:"evaluations"`
 }
 
+// pdpMetadata is the PDP metadata response body (Section 9).
+type pdpMetadata struct {
+	PolicyDecisionPoint       string   `json:"policy_decision_point"`
+	AccessEvaluationEndpoint  string   `json:"access_evaluation_endpoint"`
+	AccessEvaluationsEndpoint string   `json:"access_evaluations_endpoint"`
+	SupportedCapabilities     []string `json:"supported_capabilities"`
+}
+
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -483,10 +491,11 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 		host = "localhost"
 	}
 	base := fmt.Sprintf("%s://%s", scheme, host)
-	metadata := map[string]string{
-		"policy_decision_point":       base,
-		"access_evaluation_endpoint":  base + "/access/v1/evaluation",
-		"access_evaluations_endpoint": base + "/access/v1/evaluations",
+	metadata := pdpMetadata{
+		PolicyDecisionPoint:       base,
+		AccessEvaluationEndpoint:  base + "/access/v1/evaluation",
+		AccessEvaluationsEndpoint: base + "/access/v1/evaluations",
+		SupportedCapabilities:     []string{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

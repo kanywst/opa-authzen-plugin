@@ -198,16 +198,16 @@ func TestWellKnown(t *testing.T) {
 		t.Fatalf("expected Content-Type=application/json, got %q", ct)
 	}
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://localhost:8181" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://localhost:8181" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
-	if metadata["access_evaluation_endpoint"] != "http://localhost:8181/access/v1/evaluation" {
-		t.Fatalf("unexpected endpoint: %s", metadata["access_evaluation_endpoint"])
+	if metadata.AccessEvaluationEndpoint != "http://localhost:8181/access/v1/evaluation" {
+		t.Fatalf("unexpected endpoint: %s", metadata.AccessEvaluationEndpoint)
 	}
 }
 
@@ -368,13 +368,13 @@ func TestWellKnownXForwardedHost(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://pdp.example.com" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://pdp.example.com" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -388,13 +388,13 @@ func TestWellKnownXForwardedProto(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "https://pdp.example.com" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "https://pdp.example.com" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -408,13 +408,13 @@ func TestWellKnownXForwardedProtoInvalid(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://pdp.example.com" {
-		t.Fatalf("expected invalid proto to be ignored, got pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://pdp.example.com" {
+		t.Fatalf("expected invalid proto to be ignored, got pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -427,13 +427,13 @@ func TestWellKnownEmptyHostFallback(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 
-	if metadata["policy_decision_point"] != "http://localhost" {
-		t.Fatalf("unexpected pdp: %s", metadata["policy_decision_point"])
+	if metadata.PolicyDecisionPoint != "http://localhost" {
+		t.Fatalf("unexpected pdp: %s", metadata.PolicyDecisionPoint)
 	}
 }
 
@@ -1094,13 +1094,34 @@ func TestWellKnownIncludesEvaluationsEndpoint(t *testing.T) {
 	w := httptest.NewRecorder()
 	p.handleWellKnown(w, req)
 
-	var metadata map[string]string
+	var metadata pdpMetadata
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
 	expected := "http://localhost:8181/access/v1/evaluations"
-	if metadata["access_evaluations_endpoint"] != expected {
-		t.Fatalf("expected access_evaluations_endpoint=%s, got %s", expected, metadata["access_evaluations_endpoint"])
+	if metadata.AccessEvaluationsEndpoint != expected {
+		t.Fatalf("expected access_evaluations_endpoint=%s, got %s", expected, metadata.AccessEvaluationsEndpoint)
+	}
+}
+
+func TestWellKnownIncludesSupportedCapabilities(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.SupportedCapabilities == nil {
+		t.Fatal("expected supported_capabilities in metadata")
+	}
+	// Currently no capabilities are declared, so the array should be empty.
+	if len(metadata.SupportedCapabilities) != 0 {
+		t.Fatalf("expected empty supported_capabilities, got %v", metadata.SupportedCapabilities)
 	}
 }
 
