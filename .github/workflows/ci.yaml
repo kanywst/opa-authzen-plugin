@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: make test
+      - run: go test -v -race ./...
 
   lint:
     runs-on: ubuntu-latest
@@ -32,4 +32,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: make vet
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
