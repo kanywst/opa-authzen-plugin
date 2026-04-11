@@ -1617,3 +1617,69 @@ func TestReconfigureWithInvalidType(t *testing.T) {
 		t.Fatalf("expected 200 after invalid reconfigure, got %d", w.Code)
 	}
 }
+
+// TestReconfigureChangesPathAndDecision verifies that after Reconfigure with a
+// new path and decision rule, evaluations use the updated configuration.
+func TestReconfigureChangesPathAndDecision(t *testing.T) {
+	ctx := context.Background()
+	store := inmem.New()
+	txn := storage.NewTransactionOrDie(ctx, store, storage.WriteParams)
+	// Two packages: "authzen" (default) and "custom".
+	if err := store.UpsertPolicy(ctx, txn, "default.rego", []byte(`
+		package authzen
+		default allow = false
+	`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPolicy(ctx, txn, "custom.rego", []byte(`
+		package custom
+		default permit = false
+		permit if input.subject.id == "alice"
+	`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Commit(ctx, txn); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := plugins.New([]byte{}, "test", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{Path: defaultPath, Decision: defaultDecision}
+	p := New(m, cfg)
+
+	body := `{"subject": {"type": "user", "id": "alice"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+
+	// Before reconfigure: default path "authzen" with rule "allow" -> deny for alice.
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluation(w, req)
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision {
+		t.Fatal("expected decision=false before reconfigure")
+	}
+
+	// Reconfigure to use "custom" package with "permit" rule.
+	p.Reconfigure(ctx, &Config{Path: "custom", Decision: "permit"})
+
+	// After reconfigure: path "custom" with rule "permit" -> allow for alice.
+	req = httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	p.handleEvaluation(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Fatal("expected decision=true after reconfigure to custom/permit")
+	}
+}
