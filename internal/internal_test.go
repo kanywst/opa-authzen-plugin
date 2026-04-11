@@ -845,6 +845,17 @@ func TestEvaluationsPermitOnFirstPermit(t *testing.T) {
 	if !resp.Evaluations[1].Decision {
 		t.Fatal("evaluation[1]: expected true (first permit)")
 	}
+	// Verify reason context is included on the short-circuit permit (Section 7.1.2.1).
+	if resp.Evaluations[1].Context == nil {
+		t.Fatal("evaluation[1]: expected context with reason on short-circuit permit")
+	}
+	var ctx map[string]any
+	if err := json.Unmarshal(resp.Evaluations[1].Context, &ctx); err != nil {
+		t.Fatalf("failed to unmarshal context: %v", err)
+	}
+	if ctx["reason"] != "permit_on_first_permit" {
+		t.Fatalf("evaluation[1]: expected reason=permit_on_first_permit, got %v", ctx["reason"])
+	}
 }
 
 func TestEvaluationsPermitOnFirstPermitAllDeny(t *testing.T) {
@@ -1587,6 +1598,9 @@ func TestReconfigureWithInvalidType(t *testing.T) {
 
 	// Reconfigure with wrong type should not panic.
 	p.Reconfigure(context.Background(), "not a *Config")
+
+	// Reconfigure with nil pointer should not panic.
+	p.Reconfigure(context.Background(), (*Config)(nil))
 
 	// Plugin should still work with original config.
 	body := `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`

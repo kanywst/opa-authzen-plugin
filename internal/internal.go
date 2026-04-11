@@ -103,8 +103,8 @@ func (p *AuthZenPlugin) Stop(_ context.Context) {
 // Reconfigure updates the plugin configuration.
 func (p *AuthZenPlugin) Reconfigure(_ context.Context, config any) {
 	cfg, ok := config.(*Config)
-	if !ok {
-		p.logger.Error("AuthZEN reconfigure: unexpected config type %T", config)
+	if !ok || cfg == nil {
+		p.logger.Error("AuthZEN reconfigure: unexpected or nil config type %T", config)
 		return
 	}
 	p.mu.Lock()
@@ -435,15 +435,17 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 		if semantic == semanticDenyOnFirstDeny && !decision {
 			// Short-circuit: include reason in context (Section 7.1.2.1).
-			ctxJSON, _ := json.Marshal(map[string]any{
-				"code":   "200",
-				"reason": "deny_on_first_deny",
+			results = append(results, evaluationResponse{
+				Decision: false,
+				Context:  json.RawMessage(`{"code":"200","reason":"deny_on_first_deny"}`),
 			})
-			results = append(results, evaluationResponse{Decision: false, Context: ctxJSON})
 			break
 		}
 		if semantic == semanticPermitOnFirstPermit && decision {
-			results = append(results, evaluationResponse{Decision: true})
+			results = append(results, evaluationResponse{
+				Decision: true,
+				Context:  json.RawMessage(`{"code":"200","reason":"permit_on_first_permit"}`),
+			})
 			break
 		}
 
