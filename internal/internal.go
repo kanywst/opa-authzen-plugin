@@ -102,9 +102,14 @@ func (p *AuthZenPlugin) Stop(_ context.Context) {
 
 // Reconfigure updates the plugin configuration.
 func (p *AuthZenPlugin) Reconfigure(_ context.Context, config any) {
+	cfg, ok := config.(*Config)
+	if !ok {
+		p.logger.Error("AuthZEN reconfigure: unexpected config type %T", config)
+		return
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.cfg = *config.(*Config)
+	p.cfg = *cfg
 }
 
 // AuthZEN Access Evaluation API request.
@@ -153,7 +158,7 @@ type evaluationsResponse struct {
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 // buildInput unmarshals the raw JSON fields into a map suitable for OPA input.
@@ -256,7 +261,9 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		p.logger.Error("AuthZEN evaluation: failed to encode response: %v", err)
+	}
 }
 
 func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, string, string, error) {
@@ -353,7 +360,9 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision}}})
+		if err := json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision}}}); err != nil {
+			p.logger.Error("AuthZEN evaluations: failed to encode response: %v", err)
+		}
 		return
 	}
 
@@ -423,18 +432,28 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 
 		p.logger.Debug("AuthZEN batch evaluation: path=%s.%s decision=%v", path, decisionRule, decision)
-		results = append(results, evaluationResponse{Decision: decision})
 
 		if semantic == semanticDenyOnFirstDeny && !decision {
+			// Short-circuit: include reason in context (Section 7.1.2.1).
+			ctxJSON, _ := json.Marshal(map[string]any{
+				"code":   "200",
+				"reason": "deny_on_first_deny",
+			})
+			results = append(results, evaluationResponse{Decision: false, Context: ctxJSON})
 			break
 		}
 		if semantic == semanticPermitOnFirstPermit && decision {
+			results = append(results, evaluationResponse{Decision: true})
 			break
 		}
+
+		results = append(results, evaluationResponse{Decision: decision})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: results})
+	if err := json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: results}); err != nil {
+		p.logger.Error("AuthZEN evaluations: failed to encode response: %v", err)
+	}
 }
 
 // PDP Metadata endpoint (Section 9).
@@ -469,5 +488,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		p.logger.Error("AuthZEN well-known: failed to encode response: %v", err)
+	}
 }

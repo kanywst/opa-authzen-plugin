@@ -15,5 +15,8 @@ USER opa
 
 EXPOSE 8181
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -q --spider http://localhost:8181/.well-known/authzen-configuration || exit 1
+
 ENTRYPOINT ["opa-authzen-plugin"]
 CMD ["run", "--server"]

@@ -779,6 +779,15 @@ func TestEvaluationsDenyOnFirstDeny(t *testing.T) {
 	if resp.Evaluations[1].Decision {
 		t.Fatal("evaluation[1]: expected false (first deny)")
 	}
+	// Verify reason context is included on the short-circuit deny (Section 7.1.2.1).
+	if resp.Evaluations[1].Context == nil {
+		t.Fatal("evaluation[1]: expected context with reason on short-circuit deny")
+	}
+	var ctx map[string]any
+	json.Unmarshal(resp.Evaluations[1].Context, &ctx)
+	if ctx["reason"] != "deny_on_first_deny" {
+		t.Fatalf("evaluation[1]: expected reason=deny_on_first_deny, got %v", ctx["reason"])
+	}
 }
 
 func TestEvaluationsDenyOnFirstDenyAllPermit(t *testing.T) {
@@ -1549,5 +1558,27 @@ func TestEvaluationsAcceptsMaxBatchSize(t *testing.T) {
 	resp := decodeBatchResp(t, w)
 	if len(resp.Evaluations) != maxBatchSize {
 		t.Fatalf("expected %d evaluations, got %d", maxBatchSize, len(resp.Evaluations))
+	}
+}
+
+func TestReconfigureWithInvalidType(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	// Reconfigure with wrong type should not panic.
+	p.Reconfigure(context.Background(), "not a *Config")
+
+	// Plugin should still work with original config.
+	body := `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 after invalid reconfigure, got %d", w.Code)
 	}
 }
