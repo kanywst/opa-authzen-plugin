@@ -37,7 +37,7 @@ if [ ${#ASSETS[@]} -eq 0 ]; then
 fi
 
 if gh release view "${TAG_NAME}" > /dev/null 2>&1; then
-    gh release upload "${TAG_NAME}" "${ASSETS[@]}"
+    gh release upload "${TAG_NAME}" "${ASSETS[@]}" --clobber
 else
     gh release create "${TAG_NAME}" "${ASSETS[@]}" --generate-notes --draft --title "${TAG_NAME}"
 fi
