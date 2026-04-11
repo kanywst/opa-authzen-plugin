@@ -155,6 +155,14 @@ type evaluationsResponse struct {
 	Evaluations []evaluationResponse `json:"evaluations"`
 }
 
+// pdpMetadata is the PDP metadata response body (Section 9).
+type pdpMetadata struct {
+	PolicyDecisionPoint       string   `json:"policy_decision_point"`
+	AccessEvaluationEndpoint  string   `json:"access_evaluation_endpoint"`
+	AccessEvaluationsEndpoint string   `json:"access_evaluations_endpoint"`
+	SupportedCapabilities     []string `json:"supported_capabilities"`
+}
+
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -164,34 +172,47 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 // buildInput unmarshals the raw JSON fields into a map suitable for OPA input.
 func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any, string) {
 	input := map[string]any{}
-	var v any
-	if err := json.Unmarshal(subject, &v); err != nil {
+
+	var subjectVal any
+	if err := json.Unmarshal(subject, &subjectVal); err != nil {
 		return nil, "invalid subject"
 	}
-	input["subject"] = v
-	if err := json.Unmarshal(action, &v); err != nil {
+	input["subject"] = subjectVal
+
+	var actionVal any
+	if err := json.Unmarshal(action, &actionVal); err != nil {
 		return nil, "invalid action"
 	}
-	input["action"] = v
-	if err := json.Unmarshal(resource, &v); err != nil {
+	input["action"] = actionVal
+
+	var resourceVal any
+	if err := json.Unmarshal(resource, &resourceVal); err != nil {
 		return nil, "invalid resource"
 	}
-	input["resource"] = v
+	input["resource"] = resourceVal
+
 	if ctx != nil {
-		if err := json.Unmarshal(ctx, &v); err != nil {
+		var ctxVal any
+		if err := json.Unmarshal(ctx, &ctxVal); err != nil {
 			return nil, "invalid context"
 		}
-		input["context"] = v
+		input["context"] = ctxVal
 	}
+
 	return input, ""
 }
 
-// mergeField returns the override if non-nil, otherwise the default (Section 7.1.1).
+// mergeField returns the override if present and non-null, otherwise the default (Section 7.1.1).
+// A JSON `null` value is treated as absent. If both are null, nil is returned
+// so that the required-field check catches the missing value.
 func mergeField(deflt, override json.RawMessage) json.RawMessage {
-	if override != nil {
+	if len(override) > 0 && string(override) != "null" {
 		return override
 	}
-	return deflt
+	if len(deflt) > 0 && string(deflt) != "null" {
+		return deflt
+	}
+	return nil
 }
 
 // evalErrorResponse builds a per-evaluation error response (Section 7.2.1).
@@ -488,10 +509,11 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 		host = "localhost"
 	}
 	base := fmt.Sprintf("%s://%s", scheme, host)
-	metadata := map[string]string{
-		"policy_decision_point":       base,
-		"access_evaluation_endpoint":  base + "/access/v1/evaluation",
-		"access_evaluations_endpoint": base + "/access/v1/evaluations",
+	metadata := pdpMetadata{
+		PolicyDecisionPoint:       base,
+		AccessEvaluationEndpoint:  base + "/access/v1/evaluation",
+		AccessEvaluationsEndpoint: base + "/access/v1/evaluations",
+		SupportedCapabilities:     []string{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
