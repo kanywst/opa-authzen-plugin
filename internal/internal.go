@@ -20,6 +20,16 @@ const (
 
 	defaultPath     = "authzen"
 	defaultDecision = "allow"
+
+	// maxRequestBodyBytes is the maximum allowed size for an API request body.
+	// This protects against denial-of-service attacks via excessively large
+	// payloads (Section 11.7 of the AuthZEN specification).
+	maxRequestBodyBytes = 1 << 20 // 1 MB
+
+	// maxBatchSize is the maximum number of evaluations allowed in a single
+	// batch request. This protects against resource exhaustion from requests
+	// containing an excessive number of evaluation items (Section 11.7).
+	maxBatchSize = 100
 )
 
 // Config represents the plugin configuration.
@@ -211,6 +221,9 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Limit request body size to protect against DoS (Section 11.7).
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var req evaluationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -312,6 +325,9 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Limit request body size to protect against DoS (Section 11.7).
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var req evaluationsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -338,6 +354,13 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision}}})
+		return
+	}
+
+	// Limit the number of evaluations to protect against resource
+	// exhaustion (Section 11.7).
+	if len(req.Evaluations) > maxBatchSize {
+		jsonError(w, fmt.Sprintf("evaluations array exceeds maximum size of %d", maxBatchSize), http.StatusBadRequest)
 		return
 	}
 
