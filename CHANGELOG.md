@@ -11,41 +11,86 @@ Versions follow the format `<opa_version>-authzen-<N>`, where:
 
 ## [Unreleased]
 
+---
+
+## [v0.2.2] - 2026-04-11
+
+### Added
+- `supported_capabilities` field in well-known metadata response (Section 9, 12.3)
+- AuthZEN interop E2E test suite integration
+
+### Changed
+- Well-known metadata response uses typed struct instead of untyped map
+
+### Fixed
+- Explicit JSON `null` in batch evaluation fields now correctly falls back to top-level defaults (Section 7.1.1)
+
+---
+
+## [v0.2.1] - 2026-04-11
+
+### Added
+- Request payload size limit (1 MB) and batch size limit (100 evaluations) (Section 11.7)
+- Race detector and golangci-lint in CI
+
+### Changed
+- Batch size limit exceeded now returns 413 Request Entity Too Large
+- Improved error handling with HTTP status codes in per-evaluation error responses
+- golangci-lint v2 migration with updated configuration
+
+### Fixed
+- errcheck lint errors in test code
+
+---
+
+## [v0.2.0] - 2026-04-07
+
 ### Added
 - Batch evaluations endpoint (`POST /access/v1/evaluations`) with support for:
-  - Default subject, action, resource, context fields
-  - AuthZEN semantic options: `execute_all`, `deny_on_first_deny`, `permit_on_first_permit`
-  - Response format per AuthZEN Section 7
+  - Default subject, action, resource, context fields (Section 7.1.1)
+  - AuthZEN semantic options: `execute_all`, `deny_on_first_deny`, `permit_on_first_permit` (Section 7.1.2.1)
+  - Per-evaluation error responses (Section 7.2.1)
+  - Backward compatibility when `evaluations` array is absent or empty (Section 7.1)
 - Well-known configuration endpoint (`GET /.well-known/authzen-configuration`)
-- X-Request-ID request/response header support
-- Project governance documentation (CONTRIBUTING.md, SECURITY.md, MAINTAINERS.md)
+- X-Request-ID request/response header support (Section 10.1.3)
+- Content-Type validation for API requests (Section 10.1)
+- Project governance documentation (CONTRIBUTING.md, SECURITY.md, MAINTAINERS.md, CODE_OF_CONDUCT.md)
+- RELEASE.md with versioning scheme and release checklist
 - Go version specification (.go-version)
 - Dependabot configuration for automated dependency updates
+- tools.go for golangci-lint and go-licenses
 
 ### Changed
 - Simplified go.mod with OPA as an explicit direct dependency
-
-### Fixed
+- Release script auto-generates release notes
 
 ---
 
-## [v0.1.0] - 2026-04-06
+## [v0.1.0] - 2026-04-05
 
 ### Added
-- Initial release
 - Single evaluation endpoint (`POST /access/v1/evaluation`) per AuthZEN Section 6
+- Required field validation for subject, action, resource
+- Content-Type validation
+- Release workflow and CODEOWNERS
 - Rego policy evaluation with configurable package path and decision rule
 - Plugin architecture following opa-envoy-plugin standards
 - Docker support with example policy
-- Comprehensive test suite (49 tests, 81% coverage)
-
-### Features
-- AuthZEN Authorization API 1.0 compliance (Sections 5, 6, 7, 9, 10.1.3)
-- Direct integration with OPA via ExtraRoute plugin interface
-- Full access to OPA's Rego engine, storage, and metrics
-- OpenTelemetry tracing support inherited from OPA
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.1.0...HEAD
-[v0.1.0]: https://github.com/kanywst/opa-authzen-plugin/releases/tag/v0.1.0
+## [v0.0.1] - 2026-04-02
+
+### Added
+- Initial release
+- AuthZEN authorization plugin for OPA
+- Main entry point for OPA authzen plugin
+
+---
+
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.2...HEAD
+[v0.2.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.1...v0.2.2
+[v0.2.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.0...v0.2.1
+[v0.2.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.1.0...v0.2.0
+[v0.1.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.0.1...v0.1.0
+[v0.0.1]: https://github.com/kanywst/opa-authzen-plugin/releases/tag/v0.0.1
