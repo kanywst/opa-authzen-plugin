@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/open-policy-agent/opa/v1/plugins"
@@ -1451,5 +1453,101 @@ func TestEvaluationsBackwardCompatibilityWithoutEvaluationsArray(t *testing.T) {
 
 	if resp.Evaluations[0].Decision != true {
 		t.Errorf("expected decision=true for alice, got %v", resp.Evaluations[0].Decision)
+	}
+}
+
+// Section 11.7: Request payload size limits
+
+func TestEvaluationRejectsOversizedBody(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	// Build a body larger than maxRequestBodyBytes (1 MB).
+	padding := strings.Repeat("x", maxRequestBodyBytes+1)
+	body := `{"subject":{"type":"user","id":"` + padding + `"},"action":{"name":"read"},"resource":{"type":"doc","id":"1"}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized body, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsRejectsOversizedBody(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	padding := strings.Repeat("x", maxRequestBodyBytes+1)
+	body := `{"subject":{"type":"user","id":"` + padding + `"},"action":{"name":"read"},"resource":{"type":"doc","id":"1"}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluations", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluations(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for oversized body, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsRejectsExcessiveBatchSize(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	// Build evaluations array with maxBatchSize+1 items.
+	var evals []string
+	for i := 0; i < maxBatchSize+1; i++ {
+		evals = append(evals, fmt.Sprintf(`{"resource":{"type":"doc","id":"%d"}}`, i))
+	}
+	body := fmt.Sprintf(`{
+		"subject":{"type":"user","id":"alice"},
+		"action":{"name":"read"},
+		"evaluations":[%s]
+	}`, strings.Join(evals, ","))
+
+	w := postEvaluations(p, body)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for batch size %d, got %d", maxBatchSize+1, w.Code)
+	}
+}
+
+func TestEvaluationsAcceptsMaxBatchSize(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+	`)
+
+	// Build evaluations array with exactly maxBatchSize items.
+	var evals []string
+	for i := 0; i < maxBatchSize; i++ {
+		evals = append(evals, fmt.Sprintf(`{"resource":{"type":"doc","id":"%d"}}`, i))
+	}
+	body := fmt.Sprintf(`{
+		"subject":{"type":"user","id":"alice"},
+		"action":{"name":"read"},
+		"evaluations":[%s]
+	}`, strings.Join(evals, ","))
+
+	w := postEvaluations(p, body)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for batch size %d, got %d: %s", maxBatchSize, w.Code, w.Body.String())
+	}
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != maxBatchSize {
+		t.Fatalf("expected %d evaluations, got %d", maxBatchSize, len(resp.Evaluations))
 	}
 }
