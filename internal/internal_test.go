@@ -687,7 +687,9 @@ func TestEvaluationsMissingRequiredFieldPerEval(t *testing.T) {
 		t.Fatal("evaluation[1]: expected context with error")
 	}
 	var ctx map[string]any
-	json.Unmarshal(resp.Evaluations[1].Context, &ctx)
+	if err := json.Unmarshal(resp.Evaluations[1].Context, &ctx); err != nil {
+		t.Fatalf("failed to unmarshal context: %v", err)
+	}
 	if ctx["error"] == nil {
 		t.Fatal("evaluation[1]: expected context.error")
 	}
@@ -784,7 +786,9 @@ func TestEvaluationsDenyOnFirstDeny(t *testing.T) {
 		t.Fatal("evaluation[1]: expected context with reason on short-circuit deny")
 	}
 	var ctx map[string]any
-	json.Unmarshal(resp.Evaluations[1].Context, &ctx)
+	if err := json.Unmarshal(resp.Evaluations[1].Context, &ctx); err != nil {
+		t.Fatalf("failed to unmarshal context: %v", err)
+	}
 	if ctx["reason"] != "deny_on_first_deny" {
 		t.Fatalf("evaluation[1]: expected reason=deny_on_first_deny, got %v", ctx["reason"])
 	}
@@ -1162,7 +1166,9 @@ func TestDecisionNonBooleanReturnsDecisionFalse(t *testing.T) {
 		package authzen
 		allow = "maybe"
 	`)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -1201,7 +1207,9 @@ func TestDecisionRuleDoesNotExistReturnsDecisionFalse(t *testing.T) {
 		other_rule = true
 	`)
 	p.cfg.Decision = "allow" // Rule doesn't exist
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -1235,7 +1243,9 @@ func TestDecisionRuleDoesNotExistReturnsDecisionFalse(t *testing.T) {
 // This prevents JSON marshaling bugs and injection vulnerabilities.
 func TestBuildInputWithSpecialCharactersInProperties(t *testing.T) {
 	p := testPlugin(t, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	// Input with special characters, Unicode, quotes, backslashes
@@ -1280,7 +1290,9 @@ func TestBuildInputWithSpecialCharactersInProperties(t *testing.T) {
 // properties are preserved correctly. AuthZEN allows objects to have optional properties.
 func TestBuildInputWithNullPropertiesInSubjectAndResource(t *testing.T) {
 	p := testPlugin(t, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	// Properties field is null in subject
@@ -1320,7 +1332,9 @@ func TestBatchEvaluationsWithNullFieldsUsesDefaults(t *testing.T) {
 		package authzen
 		allow if input.subject.id == "default-id"
 	`)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	// Batch with defaults; individual evaluation overrides subject but not others
@@ -1373,7 +1387,9 @@ func TestBatchEvaluationsPreservesOrderAndCorrectness(t *testing.T) {
 		allow if input.subject.id == "admin"
 		allow if input.resource.id == "public"
 	`)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -1430,7 +1446,9 @@ func TestBatchEvaluationsPreservesOrderAndCorrectness(t *testing.T) {
 // top-level subject/action/resource (Section 7.1 backward compatibility).
 func TestEvaluationsBackwardCompatibilityWithoutEvaluationsArray(t *testing.T) {
 	p := testPlugin(t, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	// No "evaluations" array - only top-level subject/action/resource

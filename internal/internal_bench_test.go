@@ -9,7 +9,9 @@ import (
 
 func BenchmarkEvaluationAllow(b *testing.B) {
 	p := testPlugin(&testing.T{}, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		b.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -33,7 +35,9 @@ func BenchmarkEvaluationAllow(b *testing.B) {
 
 func BenchmarkEvaluationDeny(b *testing.B) {
 	p := testPlugin(&testing.T{}, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		b.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -57,7 +61,9 @@ func BenchmarkEvaluationDeny(b *testing.B) {
 
 func BenchmarkBatchEvaluations(b *testing.B) {
 	p := testPlugin(&testing.T{}, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		b.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
@@ -87,7 +93,9 @@ func BenchmarkBatchEvaluations(b *testing.B) {
 
 func BenchmarkWellKnown(b *testing.B) {
 	p := testPlugin(&testing.T{}, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		b.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	b.ResetTimer()
@@ -104,7 +112,9 @@ func BenchmarkWellKnown(b *testing.B) {
 
 func BenchmarkParallelEvaluations(b *testing.B) {
 	p := testPlugin(&testing.T{}, module)
-	p.Start(context.Background())
+	if err := p.Start(context.Background()); err != nil {
+		b.Fatal(err)
+	}
 	defer p.Stop(context.Background())
 
 	body := `{
