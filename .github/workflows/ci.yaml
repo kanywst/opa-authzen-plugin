@@ -35,3 +35,10 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.9.0
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Basic smoke and e2e test with interop
+        run: make test-interop

@@ -57,3 +57,10 @@ docker-run:
 		-v $(PWD)/example:/example:ro \
 		$(IMAGE):$(DOCKER_VERSION) \
 		run --server --config-file /example/config.yaml /example/policy.rego
+
+.PHONY: test-interop
+test-interop: docker-build
+	@echo "==> Running opa-authzen-interop E2E tests"
+	@rm -rf /tmp/opa-authzen-interop
+	@git clone https://github.com/kanywst/opa-authzen-interop.git /tmp/opa-authzen-interop
+	@$(MAKE) -C /tmp/opa-authzen-interop integration-test PDP_IMAGE=$(IMAGE) PDP_VERSION=$(DOCKER_VERSION)
