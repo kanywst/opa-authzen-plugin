@@ -164,25 +164,33 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 // buildInput unmarshals the raw JSON fields into a map suitable for OPA input.
 func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any, string) {
 	input := map[string]any{}
-	var v any
-	if err := json.Unmarshal(subject, &v); err != nil {
+
+	var subjectVal any
+	if err := json.Unmarshal(subject, &subjectVal); err != nil {
 		return nil, "invalid subject"
 	}
-	input["subject"] = v
-	if err := json.Unmarshal(action, &v); err != nil {
+	input["subject"] = subjectVal
+
+	var actionVal any
+	if err := json.Unmarshal(action, &actionVal); err != nil {
 		return nil, "invalid action"
 	}
-	input["action"] = v
-	if err := json.Unmarshal(resource, &v); err != nil {
+	input["action"] = actionVal
+
+	var resourceVal any
+	if err := json.Unmarshal(resource, &resourceVal); err != nil {
 		return nil, "invalid resource"
 	}
-	input["resource"] = v
+	input["resource"] = resourceVal
+
 	if ctx != nil {
-		if err := json.Unmarshal(ctx, &v); err != nil {
+		var ctxVal any
+		if err := json.Unmarshal(ctx, &ctxVal); err != nil {
 			return nil, "invalid context"
 		}
-		input["context"] = v
+		input["context"] = ctxVal
 	}
+
 	return input, ""
 }
 
