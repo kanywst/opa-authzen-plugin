@@ -194,12 +194,17 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 	return input, ""
 }
 
-// mergeField returns the override if non-nil, otherwise the default (Section 7.1.1).
+// mergeField returns the override if present and non-null, otherwise the default (Section 7.1.1).
+// A JSON `null` value is treated as absent. If both are null, nil is returned
+// so that the required-field check catches the missing value.
 func mergeField(deflt, override json.RawMessage) json.RawMessage {
-	if override != nil {
+	if len(override) > 0 && string(override) != "null" {
 		return override
 	}
-	return deflt
+	if len(deflt) > 0 && string(deflt) != "null" {
+		return deflt
+	}
+	return nil
 }
 
 // evalErrorResponse builds a per-evaluation error response (Section 7.2.1).
