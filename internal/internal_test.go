@@ -1392,6 +1392,41 @@ func TestBatchEvaluationsWithNullFieldsUsesDefaults(t *testing.T) {
 	}
 }
 
+// TestBatchEvaluationsNullFieldsFallBackToDefaults verifies that explicit JSON null
+// in an evaluation item falls back to the top-level default (Section 7.1.1).
+func TestBatchEvaluationsNullFieldsFallBackToDefaults(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		allow if input.subject.id == "default-id"
+	`)
+
+	// action and resource are explicitly null -> should use top-level defaults.
+	// subject is also null -> should use top-level default ("default-id") -> allow.
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "default-id"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{
+				"subject": null,
+				"action": null,
+				"resource": null
+			}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 evaluation, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("expected decision=true (null fields should fall back to top-level defaults)")
+	}
+}
+
 // TestBatchEvaluationsPreservesOrderAndCorrectness tests that batch evaluations
 // process all items, preserve order, and that each gets correct decision based on
 // its specific context (not mixed up).
