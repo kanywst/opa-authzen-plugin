@@ -194,6 +194,9 @@ func TestWellKnown(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected Content-Type=application/json, got %q", ct)
+	}
 
 	var metadata map[string]string
 	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {

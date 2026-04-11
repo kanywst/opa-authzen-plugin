@@ -10,3 +10,9 @@ allow if {
 	input.action.name == "read"
 	input.subject.id != ""
 }
+
+# Allow access during business hours (context-based).
+allow if {
+	input.action.name == "access"
+	input.context.business_hours == true
+}

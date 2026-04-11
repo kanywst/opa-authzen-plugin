@@ -1,16 +1,65 @@
 # opa-authzen-plugin
 
-This repository contains an extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html).
+An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html) as a native OPA plugin.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                  OPA Process (:8181)              │
+│                                                  │
+│  ┌────────────────────────────────────────────┐  │
+│  │           OPA HTTP Server                  │  │
+│  │                                            │  │
+│  │  Built-in Routes       AuthZEN Routes      │  │
+│  │  ┌──────────────┐  ┌───────────────────┐   │  │
+│  │  │ POST /v1/    │  │ POST /access/v1/  │   │  │
+│  │  │   data/...   │  │   evaluation      │   │  │
+│  │  │ GET /health  │  │ POST /access/v1/  │   │  │
+│  │  │ ...          │  │   evaluations     │   │  │
+│  │  └──────────────┘  │ GET /.well-known/ │   │  │
+│  │                    │   authzen-config.. │   │  │
+│  │                    └─────────┬─────────┘   │  │
+│  └──────────────────────────────┼─────────────┘  │
+│                                 │                │
+│  ┌──────────────────────────────▼─────────────┐  │
+│  │          AuthZEN Plugin (ExtraRoute)        │  │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐  │  │
+│  │  │ Validate│  │ Evaluate │  │ Metadata │  │  │
+│  │  │ Request │─▶│  Policy  │  │ Endpoint │  │  │
+│  │  └─────────┘  └────┬─────┘  └──────────┘  │  │
+│  └─────────────────────┼──────────────────────┘  │
+│                        │                         │
+│  ┌─────────────────────▼──────────────────────┐  │
+│  │        OPA Rego Engine + Store              │  │
+│  │  ┌──────────┐  ┌───────────┐  ┌─────────┐ │  │
+│  │  │ Compiler │  │ In-Memory │  │ Bundles │ │  │
+│  │  │          │  │   Store   │  │         │ │  │
+│  │  └──────────┘  └───────────┘  └─────────┘ │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
+```
+
+The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181`) using OPA's `ExtraRoute` extension point. This means AuthZEN routes get OPA's built-in Prometheus metrics, OpenTelemetry tracing, and server authorization automatically — no separate port or listener required.
+
+## AuthZEN 1.0 Compliance
+
+| Spec Section | Feature | Status |
+|-------------|---------|--------|
+| Section 5 | Information Model (Subject, Action, Resource, Context, Decision) | ✅ Supported |
+| Section 6 | Access Evaluation API (`POST /access/v1/evaluation`) | ✅ Supported |
+| Section 7 | Access Evaluations API (`POST /access/v1/evaluations`) | ✅ Supported |
+| Section 7.1.1 | Default value merging for batch evaluations | ✅ Supported |
+| Section 7.1.2.1 | Evaluation semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`) | ✅ Supported |
+| Section 8 | Search APIs (Subject, Resource, Action) | ❌ Not yet |
+| Section 9 | PDP Metadata (`GET /.well-known/authzen-configuration`) | ✅ Supported |
+| Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
+| Section 10.1.3 | X-Request-ID echo | ✅ Supported |
+| Section 11.7 | Request payload protection (body size limit, batch size limit) | ✅ Supported |
 
 ## Issue Management
 
 Use [GitHub Issues](https://github.com/kanywst/opa-authzen-plugin/issues) to request features or file bugs.
-
-## Overview
-
-OPA-AuthZEN extends OPA with routes that implement the AuthZEN [Access Evaluation API](https://openid.net/specs/authorization-api-1_0.html#section-6). You can use this version of OPA as a standard AuthZEN-compatible PDP (Policy Decision Point) without a separate proxy process.
-
-The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181`) using OPA's `ExtraRoute` extension point. This means AuthZEN routes get OPA's built-in Prometheus metrics, OpenTelemetry tracing, and server authorization automatically — no separate port or listener required.
 
 ## Quick Start
 
@@ -94,10 +143,36 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 
     Top-level `subject`, `action`, `resource`, and `context` serve as defaults for each item in the `evaluations` array. Individual items can override any of these fields. See [Section 7](https://openid.net/specs/authorization-api-1_0.html#section-7) of the AuthZEN spec for details on evaluation semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`).
 
-7. Check the well-known metadata endpoint.
+7. Use evaluation semantics to short-circuit batch processing.
+
+    ```bash
+    curl -s -X POST http://localhost:8181/access/v1/evaluations \
+      -H "Content-Type: application/json" \
+      -d '{
+        "subject": {"type": "user", "id": "bob"},
+        "action": {"name": "read"},
+        "options": {"evaluations_semantic": "permit_on_first_permit"},
+        "evaluations": [
+          {"resource": {"type": "document", "id": "doc-1"}},
+          {"resource": {"type": "document", "id": "doc-2"}}
+        ]
+      }'
+    ```
+
+8. Check the well-known metadata endpoint.
 
     ```bash
     curl -s http://localhost:8181/.well-known/authzen-configuration | jq .
+    ```
+
+    Response:
+
+    ```json
+    {
+      "policy_decision_point": "http://localhost:8181",
+      "access_evaluation_endpoint": "http://localhost:8181/access/v1/evaluation",
+      "access_evaluations_endpoint": "http://localhost:8181/access/v1/evaluations"
+    }
     ```
 
 ## Docker
@@ -115,6 +190,31 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | ---------- | ------ | --------- | --------------------------------------------------------------- |
 | `path`     | string | `authzen` | OPA package path to query                                       |
 | `decision` | string | `allow`   | Rule name within the package that produces the boolean decision |
+
+## API Reference
+
+### `POST /access/v1/evaluation`
+
+Single access evaluation. Request body:
+
+```json
+{
+  "subject":  {"type": "user", "id": "alice@example.com"},
+  "action":   {"name": "can_read"},
+  "resource": {"type": "account", "id": "123"},
+  "context":  {"time": "2024-10-26T01:22-07:00"}
+}
+```
+
+Response: `{"decision": true}`
+
+### `POST /access/v1/evaluations`
+
+Batch access evaluations with default value merging and evaluation semantics. See [example/](./example/) for detailed usage.
+
+### `GET /.well-known/authzen-configuration`
+
+PDP metadata discovery endpoint (Section 9).
 
 ## License
 
