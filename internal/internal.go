@@ -489,6 +489,11 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Determine the scheme and host for constructing the base URL.
+	// NOTE: X-Forwarded-Proto and X-Forwarded-Host headers are trusted here.
+	// In production, this endpoint should be behind a reverse proxy that sets
+	// these headers. If exposed directly, a client could spoof these values
+	// to influence the metadata response.
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
