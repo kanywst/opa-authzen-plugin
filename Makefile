@@ -61,6 +61,7 @@ docker-run:
 .PHONY: test-interop
 test-interop: docker-build
 	@echo "==> Running opa-authzen-interop E2E tests"
-	@rm -rf /tmp/opa-authzen-interop
-	@git clone https://github.com/kanywst/opa-authzen-interop.git /tmp/opa-authzen-interop
-	@$(MAKE) -C /tmp/opa-authzen-interop integration-test PDP_IMAGE=$(IMAGE) PDP_VERSION=$(DOCKER_VERSION)
+	@rm -rf .interop-test
+	@git clone --depth 1 https://github.com/kanywst/opa-authzen-interop.git .interop-test
+	@$(MAKE) -C .interop-test integration-test PDP_IMAGE=$(IMAGE) PDP_VERSION=$(DOCKER_VERSION)
+	@rm -rf .interop-test

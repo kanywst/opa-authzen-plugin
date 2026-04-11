@@ -2,3 +2,4 @@
 .claude/
 /opa-authzen-plugin
 /_*
+.interop-test/
