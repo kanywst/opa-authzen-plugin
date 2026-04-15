@@ -1104,7 +1104,7 @@ func TestWellKnownIncludesEvaluationsEndpoint(t *testing.T) {
 	}
 }
 
-func TestWellKnownIncludesSupportedCapabilities(t *testing.T) {
+func TestWellKnownOmitsEmptySupportedCapabilities(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
@@ -1112,16 +1112,18 @@ func TestWellKnownIncludesSupportedCapabilities(t *testing.T) {
 	w := httptest.NewRecorder()
 	p.handleWellKnown(w, req)
 
-	var metadata pdpMetadata
-	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Section 9.2.2: "Parameters that have no values MUST be omitted from the response."
+	// With omitempty, an empty supported_capabilities should not appear in the JSON output.
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if metadata.SupportedCapabilities == nil {
-		t.Fatal("expected supported_capabilities in metadata")
-	}
-	// Currently no capabilities are declared, so the array should be empty.
-	if len(metadata.SupportedCapabilities) != 0 {
-		t.Fatalf("expected empty supported_capabilities, got %v", metadata.SupportedCapabilities)
+	if _, exists := raw["supported_capabilities"]; exists {
+		t.Fatal("expected supported_capabilities to be omitted when empty (Section 9.2.2 MUST)")
 	}
 }
 
