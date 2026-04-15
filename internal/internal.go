@@ -160,7 +160,7 @@ type pdpMetadata struct {
 	PolicyDecisionPoint       string   `json:"policy_decision_point"`
 	AccessEvaluationEndpoint  string   `json:"access_evaluation_endpoint"`
 	AccessEvaluationsEndpoint string   `json:"access_evaluations_endpoint"`
-	SupportedCapabilities     []string `json:"supported_capabilities"`
+	SupportedCapabilities     []string `json:"supported_capabilities,omitempty"`
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {
