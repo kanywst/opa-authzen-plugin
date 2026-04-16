@@ -13,6 +13,27 @@ Versions follow the format `<opa_version>-authzen-<N>`, where:
 
 ---
 
+## [v0.2.3] - 2026-04-16
+
+### Added
+- Todo app example with RBAC + resource ownership based on AuthZEN Interop scenario
+- ABAC example with clearance levels, department matching, and context-based approval
+- X-Request-ID echo on well-known metadata endpoint (Section 10.1.3)
+- Tests for well-known X-Request-ID echo and empty `supported_capabilities` omission
+
+### Fixed
+- Empty `supported_capabilities` now omitted from well-known response per Section 9.2.2 MUST
+- Removed unnecessary explicit initialization of `SupportedCapabilities` field
+
+### Dependencies
+- Bump `github.com/open-policy-agent/opa` from 1.15.1 to 1.15.2
+- Bump `actions/checkout` from 4 to 6
+- Bump `actions/github-script` from 8 to 9
+- Bump `docker/setup-buildx-action` from 3 to 4
+- Bump `golangci/golangci-lint-action` from 7 to 9
+
+---
+
 ## [v0.2.2] - 2026-04-11
 
 ### Added
@@ -88,7 +109,8 @@ Versions follow the format `<opa_version>-authzen-<N>`, where:
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.3...HEAD
+[v0.2.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.2...v0.2.3
 [v0.2.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.1.0...v0.2.0
