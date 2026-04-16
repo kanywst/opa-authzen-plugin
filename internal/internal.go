@@ -481,6 +481,11 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 // PDP Metadata endpoint (Section 9).
 func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) {
+	// Echo X-Request-ID if present (Section 10.1.3).
+	if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
+		w.Header().Set("X-Request-ID", reqID)
+	}
+
 	p.mu.RLock()
 	stopped := p.stopped
 	p.mu.RUnlock()
@@ -513,7 +518,6 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 		PolicyDecisionPoint:       base,
 		AccessEvaluationEndpoint:  base + "/access/v1/evaluation",
 		AccessEvaluationsEndpoint: base + "/access/v1/evaluations",
-		SupportedCapabilities:     []string{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
