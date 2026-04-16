@@ -1,0 +1,24 @@
+{
+  "users": {
+    "rick": {
+      "email": "rick@the-citadel.com",
+      "roles": ["admin", "evil_genius"]
+    },
+    "morty": {
+      "email": "morty@the-citadel.com",
+      "roles": ["editor"]
+    },
+    "summer": {
+      "email": "summer@the-smiths.com",
+      "roles": ["editor"]
+    },
+    "beth": {
+      "email": "beth@the-smiths.com",
+      "roles": ["viewer"]
+    },
+    "jerry": {
+      "email": "jerry@the-smiths.com",
+      "roles": ["viewer"]
+    }
+  }
+}

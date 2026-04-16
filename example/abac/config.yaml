@@ -1,0 +1,4 @@
+plugins:
+  authzen:
+    path: "authzen"
+    decision: "allow"

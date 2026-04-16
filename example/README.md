@@ -2,6 +2,14 @@
 
 This directory contains example configuration and policy files for opa-authzen-plugin.
 
+## Examples
+
+| Directory                | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| [Basic](./README.md#files) | Simple RBAC + context-based policy (this file)         |
+| [todo/](./todo/)         | AuthZEN Interop Todo scenario (RBAC + resource ownership) |
+| [abac/](./abac/)         | Attribute-Based Access Control (clearance, department)    |
+
 ## Files
 
 - `config.yaml` — OPA configuration with the AuthZEN plugin enabled
