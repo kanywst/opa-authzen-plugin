@@ -1127,6 +1127,40 @@ func TestWellKnownOmitsEmptySupportedCapabilities(t *testing.T) {
 	}
 }
 
+func TestWellKnownEchoesXRequestID(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	req.Header.Set("X-Request-ID", "wk-req-42")
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// Section 10.1.3: PDP MUST echo X-Request-ID when present.
+	if got := w.Header().Get("X-Request-ID"); got != "wk-req-42" {
+		t.Fatalf("expected X-Request-ID 'wk-req-42', got %q", got)
+	}
+}
+
+func TestWellKnownOmitsXRequestIDWhenAbsent(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Request-ID"); got != "" {
+		t.Fatalf("expected no X-Request-ID header, got %q", got)
+	}
+}
+
 func TestStartRegistersExtraRoutes(t *testing.T) {
 	p := testPlugin(t, `package authzen
 		default allow = false
