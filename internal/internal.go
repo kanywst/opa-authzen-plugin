@@ -169,31 +169,49 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+func unmarshalJSONObject(raw json.RawMessage) (map[string]any, bool) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, false
+	}
+	obj, ok := value.(map[string]any)
+	return obj, ok
+}
+
+func hasStringField(obj map[string]any, field string) bool {
+	value, ok := obj[field]
+	if !ok {
+		return false
+	}
+	_, ok = value.(string)
+	return ok
+}
+
 // buildInput unmarshals the raw JSON fields into a map suitable for OPA input.
 func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any, string) {
 	input := map[string]any{}
 
-	var subjectVal any
-	if err := json.Unmarshal(subject, &subjectVal); err != nil {
+	subjectVal, ok := unmarshalJSONObject(subject)
+	if !ok || !hasStringField(subjectVal, "type") || !hasStringField(subjectVal, "id") {
 		return nil, "invalid subject"
 	}
 	input["subject"] = subjectVal
 
-	var actionVal any
-	if err := json.Unmarshal(action, &actionVal); err != nil {
+	actionVal, ok := unmarshalJSONObject(action)
+	if !ok || !hasStringField(actionVal, "name") {
 		return nil, "invalid action"
 	}
 	input["action"] = actionVal
 
-	var resourceVal any
-	if err := json.Unmarshal(resource, &resourceVal); err != nil {
+	resourceVal, ok := unmarshalJSONObject(resource)
+	if !ok || !hasStringField(resourceVal, "type") || !hasStringField(resourceVal, "id") {
 		return nil, "invalid resource"
 	}
 	input["resource"] = resourceVal
 
 	if ctx != nil {
-		var ctxVal any
-		if err := json.Unmarshal(ctx, &ctxVal); err != nil {
+		ctxVal, ok := unmarshalJSONObject(ctx)
+		if !ok {
 			return nil, "invalid context"
 		}
 		input["context"] = ctxVal

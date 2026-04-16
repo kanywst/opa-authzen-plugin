@@ -274,6 +274,37 @@ func TestMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestRejectsInvalidInformationModel(t *testing.T) {
+	p := testPlugin(t, `package authzen
+		default allow = false
+	`)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"subject missing type", `{"subject": {"id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`},
+		{"subject wrong type", `{"subject": 123, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`},
+		{"resource missing id", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc"}}`},
+		{"action missing name", `{"subject": {"type": "user", "id": "bob"}, "action": {}, "resource": {"type": "doc", "id": "1"}}`},
+		{"context not object", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": "prod"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			p.handleEvaluation(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestContentTypeValidation(t *testing.T) {
 	p := testPlugin(t, `package authzen
 		default allow = false
@@ -698,6 +729,41 @@ func TestEvaluationsMissingRequiredFieldPerEval(t *testing.T) {
 	}
 }
 
+func TestEvaluationsInvalidInformationModelPerEval(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"id": "bob"}}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2, got %d", len(resp.Evaluations))
+	}
+	if !resp.Evaluations[0].Decision {
+		t.Fatal("evaluation[0]: expected true")
+	}
+	if resp.Evaluations[1].Decision {
+		t.Fatal("evaluation[1]: expected false (invalid subject)")
+	}
+	if resp.Evaluations[1].Context == nil {
+		t.Fatal("evaluation[1]: expected context with error")
+	}
+}
+
 func TestEvaluationsTopLevelDefaultSatisfiesRequired(t *testing.T) {
 	p := testPlugin(t, `
 		package authzen
@@ -966,6 +1032,20 @@ func TestEvaluationsBackwardCompatMissingRequired(t *testing.T) {
 
 	w := postEvaluations(p, `{
 		"subject": {"type": "user", "id": "alice"}
+	}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestEvaluationsBackwardCompatRejectsInvalidInformationModel(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	w := postEvaluations(p, `{
+		"subject": {"id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"}
 	}`)
 
 	if w.Code != http.StatusBadRequest {
