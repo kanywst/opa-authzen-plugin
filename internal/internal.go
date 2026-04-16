@@ -170,12 +170,11 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 }
 
 func unmarshalJSONObject(raw json.RawMessage) (map[string]any, bool) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
 		return nil, false
 	}
-	obj, ok := value.(map[string]any)
-	return obj, ok
+	return obj, obj != nil
 }
 
 func hasStringField(obj map[string]any, field string) bool {
