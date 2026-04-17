@@ -149,13 +149,13 @@ func (s *server) evaluate(ctx context.Context, azReq authZENRequest) (bool, erro
 	return azResp.Decision, nil
 }
 
-func denied(code int32, body string) *auth_pb.CheckResponse {
+func denied(httpCode int32, body string) *auth_pb.CheckResponse {
 	return &auth_pb.CheckResponse{
-		Status: &status.Status{Code: code},
+		Status: &status.Status{Code: int32(codes.PermissionDenied)},
 		HttpResponse: &auth_pb.CheckResponse_DeniedResponse{
 			DeniedResponse: &auth_pb.DeniedHttpResponse{
 				Status: &envoy_type.HttpStatus{
-					Code: envoy_type.StatusCode(code),
+					Code: envoy_type.StatusCode(httpCode),
 				},
 				Body: body,
 			},

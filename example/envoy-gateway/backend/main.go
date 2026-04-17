@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -85,5 +86,7 @@ func main() {
 		}
 	})
 
-	http.ListenAndServe(":8080", mux) //nolint:errcheck
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("failed to listen and serve: %v", err)
+	}
 }
