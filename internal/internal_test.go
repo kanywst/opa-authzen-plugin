@@ -1184,7 +1184,7 @@ func TestWellKnownIncludesEvaluationsEndpoint(t *testing.T) {
 	}
 }
 
-func TestWellKnownOmitsEmptySupportedCapabilities(t *testing.T) {
+func TestWellKnownOmitsEmptyCapabilities(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
@@ -1197,13 +1197,13 @@ func TestWellKnownOmitsEmptySupportedCapabilities(t *testing.T) {
 	}
 
 	// Section 9.2.2: "Parameters that have no values MUST be omitted from the response."
-	// With omitempty, an empty supported_capabilities should not appear in the JSON output.
+	// With omitempty, an empty capabilities should not appear in the JSON output.
 	var raw map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := raw["supported_capabilities"]; exists {
-		t.Fatal("expected supported_capabilities to be omitted when empty (Section 9.2.2 MUST)")
+	if _, exists := raw["capabilities"]; exists {
+		t.Fatal("expected capabilities to be omitted when empty (Section 9.2.2 MUST)")
 	}
 }
 
