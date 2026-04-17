@@ -1,0 +1,42 @@
+services:
+  opa-authzen-plugin:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command:
+      - run
+      - --server
+      - --addr=:8181
+      - --config-file=/example/todo/config.yaml
+      - /example/todo/policy.rego
+      - /example/todo/users.json
+    volumes:
+      - ../todo:/example/todo:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/.well-known/authzen-configuration"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ext-authz-bridge:
+    build:
+      context: ext-authz-bridge
+    environment:
+      AUTHZEN_PDP_URL: http://opa-authzen-plugin:8181
+    depends_on:
+      opa-authzen-plugin:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: backend
+
+  envoy:
+    image: envoyproxy/envoy:v1.33-latest
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "9000:9000"
+    depends_on:
+      - ext-authz-bridge
+      - backend
