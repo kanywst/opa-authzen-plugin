@@ -175,6 +175,39 @@ Use [GitHub Issues](https://github.com/kanywst/opa-authzen-plugin/issues) to req
     }
     ```
 
+## API Gateway Integration
+
+opa-authzen-plugin can serve as a standards-based PDP behind any API gateway
+that supports external authorization. The
+[`example/envoy-gateway/`](./example/envoy-gateway/) directory demonstrates
+this pattern with Envoy proxy:
+
+```
+Client → Envoy → ext-authz-bridge → opa-authzen-plugin (AuthZEN PDP)
+                                          ↓
+                                     OPA Rego policy
+```
+
+A thin translation layer (ext-authz-bridge) converts gateway-specific
+protocols (e.g., Envoy ext_authz gRPC) into AuthZEN evaluation requests. The
+PDP itself is **gateway-agnostic** — it can serve any AuthZEN-compatible PEP
+(Kong, AWS API Gateway, Tyk, etc.) without modification.
+
+This differs from
+[opa-envoy-plugin](https://github.com/open-policy-agent/opa-envoy-plugin),
+which embeds Envoy's gRPC ext_authz protocol directly into OPA.
+opa-authzen-plugin uses the
+[OpenID AuthZEN standard](https://openid.net/specs/authorization-api-1_0.html)
+as the protocol between the gateway and PDP.
+
+```bash
+cd example/envoy-gateway
+docker compose up --build
+# Test
+curl -i -H "X-User: rick" http://localhost:9000/todos    # → 200
+curl -i -X POST -H "X-User: jerry" http://localhost:9000/todos  # → 403
+```
+
 ## Docker
 
 ```bash
