@@ -1,6 +1,6 @@
 # Envoy Gateway + AuthZEN Integration
 
-Demonstrates using opa-authzen-plugin as a standards-based PDP behind an Envoy proxy, with the Todo scenario from the [AuthZEN Interop](https://authzen-interop.net/docs/scenarios/todo-1.1/).
+Demonstrates using opa-authzen-plugin as a standards-based PDP behind an Envoy proxy. This example uses the Todo scenario from the [AuthZEN Interop](https://authzen-interop.net/docs/scenarios/todo-1.1/).
 
 ## Architecture
 
