@@ -4,15 +4,18 @@ This document describes the process for releasing new versions of opa-authzen-pl
 
 ## Version Scheme
 
-Versions follow the format: **`<opa_version>-authzen-<N>`**
+This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): **`vMAJOR.MINOR.PATCH`**
 
-- `<opa_version>`: The OPA version this plugin is built for (e.g., `1.15.1`)
-- `<N>`: An incremental counter for plugin releases against that OPA version
+- **MAJOR**: Breaking changes to the plugin API or configuration
+- **MINOR**: New features (e.g., new endpoints, new configuration options)
+- **PATCH**: Bug fixes, dependency updates, documentation improvements
+
+The OPA version this plugin is built against is specified in `go.mod` and noted in the CHANGELOG for each release.
 
 **Examples:**
-- `1.15.1-authzen-1` — First plugin release for OPA 1.15.1
-- `1.15.1-authzen-2` — Second plugin release for OPA 1.15.1
-- `1.16.0-authzen-1` — First plugin release for OPA 1.16.0
+- `v0.2.4` — Patch release with bug fixes
+- `v0.3.0` — Minor release adding new functionality
+- `v1.0.0` — First stable release
 
 ## Release Checklist
 
@@ -41,8 +44,8 @@ Versions follow the format: **`<opa_version>-authzen-<N>`**
 
 5. **Create annotated git tag**
    ```bash
-   git tag -a v<opa_version>-authzen-<N> -m "Release v<opa_version>-authzen-<N>"
-   git push origin v<opa_version>-authzen-<N>
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
    ```
 
 6. **Build release artifacts**

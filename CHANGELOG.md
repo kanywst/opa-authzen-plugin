@@ -5,10 +5,6 @@ All notable changes to opa-authzen-plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions follow the format `<opa_version>-authzen-<N>`, where:
-- `<opa_version>` is the OPA version this plugin is built for (e.g., `1.15.1`)
-- `<N>` is an incremental counter for plugin releases against that OPA version
-
 ## [Unreleased]
 
 ---
