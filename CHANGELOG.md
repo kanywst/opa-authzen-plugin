@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.2.4] - 2026-04-18
+
+### Added
+- Envoy Gateway integration example (`example/envoy-gateway/`)
+  - ext-authz-bridge: translates Envoy gRPC ext_authz into AuthZEN evaluation requests
+  - Docker Compose setup with Envoy, bridge, OPA, and backend services
+  - Smoke test script (`test.sh`) covering 9 authorization scenarios
+- Strict information model validation with field-level error messages (e.g., `"subject.type is required and must be a string"`)
+- Regression tests for malformed requests (23 cases covering type mismatches, null, arrays)
+- Tests for JSON null context treated as absent (single and batch endpoints)
+
+### Changed
+- Renamed `supported_capabilities` to `capabilities` in PDP metadata (aligns with Editor's Draft / IANA registry)
+- Version scheme documentation updated to reflect current semver usage
+
+### Fixed
+- JSON null `context` no longer rejected as invalid (context is OPTIONAL per Section 5)
+- Required field null handling consistent between single and batch endpoints
+
+---
+
 ## [v0.2.3] - 2026-04-16
 
 ### Added
@@ -105,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.4...HEAD
+[v0.2.4]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.3...v0.2.4
 [v0.2.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.2...v0.2.3
 [v0.2.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.0...v0.2.1
