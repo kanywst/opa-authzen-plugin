@@ -16,16 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ext-authz-bridge: translates Envoy gRPC ext_authz into AuthZEN evaluation requests
   - Docker Compose setup with Envoy, bridge, OPA, and backend services
   - Smoke test script (`test.sh`) covering 9 authorization scenarios
-- Strict information model validation with field-level error messages (e.g., `"subject.type is required and must be a string"`)
+- Strict information model validation with field-level error messages (e.g., "`subject.type` is required and must be a string")
 - Regression tests for malformed requests (23 cases covering type mismatches, null, arrays)
-- Tests for JSON null context treated as absent (single and batch endpoints)
+- Tests for JSON null `context` treated as absent (single and batch endpoints)
 
 ### Changed
 - Renamed `supported_capabilities` to `capabilities` in PDP metadata (aligns with Editor's Draft / IANA registry)
 - Version scheme documentation updated to reflect current semver usage
 
 ### Fixed
-- JSON null `context` no longer rejected as invalid (context is OPTIONAL per Section 5)
+- JSON null `context` no longer rejected as invalid (`context` is OPTIONAL per Section 6)
 - Required field null handling consistent between single and batch endpoints
 
 ---
