@@ -280,14 +280,36 @@ func TestRejectsInvalidInformationModel(t *testing.T) {
 	`)
 
 	tests := []struct {
-		name string
-		body string
+		name    string
+		body    string
+		wantErr string // substring expected in the error response (optional)
 	}{
-		{"subject missing type", `{"subject": {"id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`},
-		{"subject wrong type", `{"subject": 123, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`},
-		{"resource missing id", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc"}}`},
-		{"action missing name", `{"subject": {"type": "user", "id": "bob"}, "action": {}, "resource": {"type": "doc", "id": "1"}}`},
-		{"context not object", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": "prod"}`},
+		// subject validation
+		{"subject missing type", `{"subject": {"id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.type"},
+		{"subject missing id", `{"subject": {"type": "user"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.id"},
+		{"subject is number", `{"subject": 123, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject must be a JSON object"},
+		{"subject is string", `{"subject": "alice", "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject must be a JSON object"},
+		{"subject is array", `{"subject": [1,2], "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject must be a JSON object"},
+		{"subject is null", `{"subject": null, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject"},
+		{"subject.type is number", `{"subject": {"type": 123, "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.type"},
+		{"subject.type is bool", `{"subject": {"type": true, "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.type"},
+		{"subject.id is number", `{"subject": {"type": "user", "id": 42}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.id"},
+		// action validation
+		{"action missing name", `{"subject": {"type": "user", "id": "bob"}, "action": {}, "resource": {"type": "doc", "id": "1"}}`, "action.name"},
+		{"action is array", `{"subject": {"type": "user", "id": "bob"}, "action": ["read"], "resource": {"type": "doc", "id": "1"}}`, "action must be a JSON object"},
+		{"action.name is number", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": 42}, "resource": {"type": "doc", "id": "1"}}`, "action.name"},
+		{"action.name is array", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": ["r","w"]}, "resource": {"type": "doc", "id": "1"}}`, "action.name"},
+		// resource validation
+		{"resource missing type", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"id": "1"}}`, "resource.type"},
+		{"resource missing id", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc"}}`, "resource.id"},
+		{"resource is string", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": "doc-1"}`, "resource must be a JSON object"},
+		{"resource.type is bool", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": true, "id": "1"}}`, "resource.type"},
+		{"resource.id is object", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": {"nested": 1}}}`, "resource.id"},
+		// context validation
+		{"context is string", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": "prod"}`, "context must be a JSON object"},
+		{"context is array", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": [1,2]}`, "context must be a JSON object"},
+		{"context is number", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": 42}`, "context must be a JSON object"},
+		{"context is bool", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": true}`, "context must be a JSON object"},
 	}
 
 	for _, tt := range tests {
@@ -301,7 +323,86 @@ func TestRejectsInvalidInformationModel(t *testing.T) {
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 			}
+			if tt.wantErr != "" {
+				var resp map[string]string
+				if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+					t.Fatalf("failed to decode error response: %v", err)
+				}
+				if !strings.Contains(resp["error"], tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %q", tt.wantErr, resp["error"])
+				}
+			}
 		})
+	}
+}
+
+// TestContextNullIsTreatedAsAbsent verifies that a JSON null context is
+// treated as absent rather than rejected (Section 5: context is OPTIONAL).
+func TestContextNullIsTreatedAsAbsent(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	body := `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"context": null
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	p.handleEvaluation(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resp.Decision {
+		t.Fatal("expected decision=true")
+	}
+}
+
+// TestBatchContextNullIsTreatedAsAbsent verifies null-context handling
+// works for batch evaluations (Section 7).
+func TestBatchContextNullIsTreatedAsAbsent(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"context": null,
+		"evaluations": [
+			{},
+			{"context": null}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2, got %d", len(resp.Evaluations))
+	}
+	for i, e := range resp.Evaluations {
+		if !e.Decision {
+			t.Fatalf("evaluation[%d]: expected true", i)
+		}
 	}
 }
 

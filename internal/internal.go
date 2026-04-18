@@ -186,32 +186,71 @@ func hasStringField(obj map[string]any, field string) bool {
 	return ok
 }
 
+// isJSONNull returns true if raw represents a JSON null literal.
+func isJSONNull(raw json.RawMessage) bool {
+	return len(raw) == 4 && string(raw) == "null"
+}
+
+// validateObject unmarshals raw JSON and checks it is a non-null JSON object.
+// Returns the parsed map and an empty string on success, or nil and an error
+// message describing why validation failed.
+func validateObject(raw json.RawMessage, name string) (map[string]any, string) {
+	if isJSONNull(raw) {
+		return nil, fmt.Sprintf("%s must be a JSON object", name)
+	}
+	obj, ok := unmarshalJSONObject(raw)
+	if !ok {
+		return nil, fmt.Sprintf("%s must be a JSON object", name)
+	}
+	return obj, ""
+}
+
 // buildInput unmarshals the raw JSON fields into a map suitable for OPA input.
+// It validates the information model constraints from the AuthZEN specification
+// (Section 5): subject requires string "type" and "id", action requires string
+// "name", resource requires string "type" and "id", and context (if present and
+// non-null) must be a JSON object.
 func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any, string) {
 	input := map[string]any{}
 
-	subjectVal, ok := unmarshalJSONObject(subject)
-	if !ok || !hasStringField(subjectVal, "type") || !hasStringField(subjectVal, "id") {
-		return nil, "invalid subject"
+	subjectVal, errMsg := validateObject(subject, "subject")
+	if errMsg != "" {
+		return nil, errMsg
+	}
+	if !hasStringField(subjectVal, "type") {
+		return nil, "subject.type is required and must be a string"
+	}
+	if !hasStringField(subjectVal, "id") {
+		return nil, "subject.id is required and must be a string"
 	}
 	input["subject"] = subjectVal
 
-	actionVal, ok := unmarshalJSONObject(action)
-	if !ok || !hasStringField(actionVal, "name") {
-		return nil, "invalid action"
+	actionVal, errMsg := validateObject(action, "action")
+	if errMsg != "" {
+		return nil, errMsg
+	}
+	if !hasStringField(actionVal, "name") {
+		return nil, "action.name is required and must be a string"
 	}
 	input["action"] = actionVal
 
-	resourceVal, ok := unmarshalJSONObject(resource)
-	if !ok || !hasStringField(resourceVal, "type") || !hasStringField(resourceVal, "id") {
-		return nil, "invalid resource"
+	resourceVal, errMsg := validateObject(resource, "resource")
+	if errMsg != "" {
+		return nil, errMsg
+	}
+	if !hasStringField(resourceVal, "type") {
+		return nil, "resource.type is required and must be a string"
+	}
+	if !hasStringField(resourceVal, "id") {
+		return nil, "resource.id is required and must be a string"
 	}
 	input["resource"] = resourceVal
 
-	if ctx != nil {
-		ctxVal, ok := unmarshalJSONObject(ctx)
-		if !ok {
-			return nil, "invalid context"
+	// context is OPTIONAL (Section 5). JSON null is treated as absent.
+	if ctx != nil && !isJSONNull(ctx) {
+		ctxVal, errMsg := validateObject(ctx, "context")
+		if errMsg != "" {
+			return nil, errMsg
 		}
 		input["context"] = ctxVal
 	}
@@ -274,7 +313,10 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 
 	// subject, action, resource are required (Section 6.1).
-	if req.Subject == nil || req.Action == nil || req.Resource == nil {
+	// A JSON null value is treated the same as absent.
+	if req.Subject == nil || isJSONNull(req.Subject) ||
+		req.Action == nil || isJSONNull(req.Action) ||
+		req.Resource == nil || isJSONNull(req.Resource) {
 		jsonError(w, "subject, action, and resource are required", http.StatusBadRequest)
 		return
 	}
@@ -382,7 +424,9 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 	// Backward compatibility (Section 7.1): if evaluations is absent or empty,
 	// behave as a single evaluation.
 	if len(req.Evaluations) == 0 {
-		if req.Subject == nil || req.Action == nil || req.Resource == nil {
+		if req.Subject == nil || isJSONNull(req.Subject) ||
+			req.Action == nil || isJSONNull(req.Action) ||
+			req.Resource == nil || isJSONNull(req.Resource) {
 			jsonError(w, "subject, action, and resource are required", http.StatusBadRequest)
 			return
 		}
