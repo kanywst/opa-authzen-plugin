@@ -195,9 +195,6 @@ func isJSONNull(raw json.RawMessage) bool {
 // Returns the parsed map and an empty string on success, or nil and an error
 // message describing why validation failed.
 func validateObject(raw json.RawMessage, name string) (map[string]any, string) {
-	if isJSONNull(raw) {
-		return nil, fmt.Sprintf("%s must be a JSON object", name)
-	}
 	obj, ok := unmarshalJSONObject(raw)
 	if !ok {
 		return nil, fmt.Sprintf("%s must be a JSON object", name)
