@@ -331,7 +331,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "decision": decision}).Debug("AuthZEN evaluation")
+	p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "decision": decision, "input": input}).Debug("AuthZEN evaluation")
 
 	resp := evaluationResponse{
 		Decision: decision,
