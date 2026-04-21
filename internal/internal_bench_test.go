@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkEvaluationAllow(b *testing.B) {
-	p := testPlugin(&testing.T{}, module)
+	p := testPlugin(b, module)
 	if err := p.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func BenchmarkEvaluationAllow(b *testing.B) {
 }
 
 func BenchmarkEvaluationDeny(b *testing.B) {
-	p := testPlugin(&testing.T{}, module)
+	p := testPlugin(b, module)
 	if err := p.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func BenchmarkEvaluationDeny(b *testing.B) {
 }
 
 func BenchmarkBatchEvaluations(b *testing.B) {
-	p := testPlugin(&testing.T{}, module)
+	p := testPlugin(b, module)
 	if err := p.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func BenchmarkBatchEvaluations(b *testing.B) {
 }
 
 func BenchmarkWellKnown(b *testing.B) {
-	p := testPlugin(&testing.T{}, module)
+	p := testPlugin(b, module)
 	if err := p.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func BenchmarkWellKnown(b *testing.B) {
 }
 
 func BenchmarkParallelEvaluations(b *testing.B) {
-	p := testPlugin(&testing.T{}, module)
+	p := testPlugin(b, module)
 	if err := p.Start(context.Background()); err != nil {
 		b.Fatal(err)
 	}

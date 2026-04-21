@@ -24,26 +24,26 @@ const module = `
 	}
 `
 
-func testPlugin(t *testing.T, module string) *AuthZenPlugin {
-	t.Helper()
+func testPlugin(tb testing.TB, module string) *AuthZenPlugin {
+	tb.Helper()
 
 	ctx := context.Background()
 	store := inmem.New()
 	txn := storage.NewTransactionOrDie(ctx, store, storage.WriteParams)
 	if err := store.UpsertPolicy(ctx, txn, "test.rego", []byte(module)); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	if err := store.Commit(ctx, txn); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	m, err := plugins.New([]byte{}, "test", store)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	if err := m.Start(ctx); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 
 	cfg := &Config{
