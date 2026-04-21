@@ -104,7 +104,7 @@ func (p *AuthZenPlugin) Stop(_ context.Context) {
 func (p *AuthZenPlugin) Reconfigure(_ context.Context, config any) {
 	cfg, ok := config.(*Config)
 	if !ok || cfg == nil {
-		p.logger.Error("AuthZEN reconfigure: unexpected or nil config type %T", config)
+		p.logger.WithFields(map[string]any{"config_type": fmt.Sprintf("%T", config)}).Error("AuthZEN reconfigure: unexpected or nil config type")
 		return
 	}
 	p.mu.Lock()
@@ -259,10 +259,10 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 // A JSON `null` value is treated as absent. If both are null, nil is returned
 // so that the required-field check catches the missing value.
 func mergeField(deflt, override json.RawMessage) json.RawMessage {
-	if len(override) > 0 && string(override) != "null" {
+	if len(override) > 0 && !isJSONNull(override) {
 		return override
 	}
-	if len(deflt) > 0 && string(deflt) != "null" {
+	if len(deflt) > 0 && !isJSONNull(deflt) {
 		return deflt
 	}
 	return nil
@@ -326,12 +326,12 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 
 	decision, path, decisionRule, err := p.eval(r.Context(), input)
 	if err != nil {
-		p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
+		p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN evaluation error")
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
 
-	p.logger.Debug("AuthZEN evaluation: path=%s.%s decision=%v input=%v", path, decisionRule, decision, input)
+	p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "decision": decision}).Debug("AuthZEN evaluation")
 
 	resp := evaluationResponse{
 		Decision: decision,
@@ -502,7 +502,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
 		if err != nil {
-			p.logger.Error("AuthZEN batch evaluation error: path=%s.%s error=%v", path, decisionRule, err)
+			p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN batch evaluation error")
 			results = append(results, evalErrorResponse(500, "evaluation failed"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
@@ -510,7 +510,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			continue
 		}
 
-		p.logger.Debug("AuthZEN batch evaluation: path=%s.%s decision=%v", path, decisionRule, decision)
+		p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "decision": decision}).Debug("AuthZEN batch evaluation")
 
 		if semantic == semanticDenyOnFirstDeny && !decision {
 			// Short-circuit: include reason in context (Section 7.1.2.1).
