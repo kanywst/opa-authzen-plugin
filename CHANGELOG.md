@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.2.5] - 2026-04-28
+
+### Added
+- `input` field included in evaluation Debug log for easier troubleshooting
+
+### Changed
+- Structured logging via `logger.WithFields` for evaluation, batch evaluation, and reconfigure paths (replaces printf-style formatting)
+- Test helpers accept `testing.TB` so they can be shared between tests and benchmarks
+- `mergeField` uses the `isJSONNull` helper instead of raw string comparison for null checks
+
+---
+
 ## [v0.2.4] - 2026-04-18
 
 ### Added
@@ -126,7 +138,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.5...HEAD
+[v0.2.5]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.4...v0.2.5
 [v0.2.4]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.3...v0.2.4
 [v0.2.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.2...v0.2.3
 [v0.2.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.1...v0.2.2
