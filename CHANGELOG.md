@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `input` field included in evaluation Debug log for easier troubleshooting
 
 ### Changed
-- Structured logging via `logger.WithFields` for evaluation, batch evaluation, and reconfigure paths (replaces printf-style formatting)
+- Increased usage of structured logging (`logger.WithFields`) in evaluation, batch evaluation, and reconfigure paths
 - Test helpers accept `testing.TB` so they can be shared between tests and benchmarks
 - `mergeField` uses the `isJSONNull` helper instead of raw string comparison for null checks
 
