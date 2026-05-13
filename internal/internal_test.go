@@ -54,6 +54,19 @@ func testPlugin(tb testing.TB, module string) *AuthZenPlugin {
 	return New(m, cfg)
 }
 
+// testSearchPlugin builds a plugin with the Search APIs enabled using the
+// fixed rule names "subject_search", "resource_search", "action_search".
+func testSearchPlugin(tb testing.TB, module string) *AuthZenPlugin {
+	tb.Helper()
+	p := testPlugin(tb, module)
+	p.cfg.Search = SearchConfig{
+		Subject:  "subject_search",
+		Resource: "resource_search",
+		Action:   "action_search",
+	}
+	return p
+}
+
 func TestEvaluationAllow(t *testing.T) {
 	p := testPlugin(t, `
 		package authzen
@@ -1990,5 +2003,428 @@ func TestReconfigureChangesPathAndDecision(t *testing.T) {
 	}
 	if !resp.Decision {
 		t.Fatal("expected decision=true after reconfigure to custom/permit")
+	}
+}
+
+const searchModule = `
+	package authzen
+
+	users := ["alice", "bob", "carol", "dave"]
+	accounts := ["100", "200", "300"]
+	verbs := ["can_read", "can_write", "can_delete"]
+
+	subject_search contains {"type": "user", "id": u} if {
+		some u in users
+		input.action.name == "can_read"
+		input.resource.type == "account"
+	}
+
+	resource_search contains {"type": "account", "id": a} if {
+		some a in accounts
+		input.subject.type == "user"
+		input.action.name == "can_read"
+	}
+
+	action_search contains {"name": v} if {
+		some v in verbs
+		input.subject.type == "user"
+		input.resource.type == "account"
+	}
+`
+
+func doSearch(t *testing.T, p *AuthZenPlugin, path string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	switch path {
+	case "/access/v1/search/subject":
+		p.handleSubjectSearch(w, req)
+	case "/access/v1/search/resource":
+		p.handleResourceSearch(w, req)
+	case "/access/v1/search/action":
+		p.handleActionSearch(w, req)
+	default:
+		t.Fatalf("unknown path %q", path)
+	}
+	return w
+}
+
+func TestSubjectSearch_NotConfigured(t *testing.T) {
+	p := testPlugin(t, searchModule) // no Search config
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSubjectSearch_OK(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 4 {
+		t.Fatalf("expected 4 subjects, got %d: %v", len(resp.Results), resp.Results)
+	}
+	first, _ := resp.Results[0].(map[string]any)
+	if first["type"] != "user" || first["id"] != "alice" {
+		t.Fatalf("expected first user alice, got %v", first)
+	}
+	if resp.Page == nil || resp.Page.NextToken != "" {
+		t.Fatalf("expected empty next_token, got %+v", resp.Page)
+	}
+	if resp.Page.Total == nil || *resp.Page.Total != 4 {
+		t.Fatalf("expected total=4, got %+v", resp.Page.Total)
+	}
+}
+
+func TestSubjectSearch_IgnoresSubjectID(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user", "id": "this-should-be-ignored"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 4 {
+		t.Fatalf("subject.id should be ignored; got %d results", len(resp.Results))
+	}
+}
+
+func TestSubjectSearch_MissingActionName(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestResourceSearch_OK(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 3 {
+		t.Fatalf("expected 3 resources, got %d", len(resp.Results))
+	}
+}
+
+func TestResourceSearch_IgnoresResourceID(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "must-be-ignored"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestActionSearch_OK(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/action", `{
+		"subject": {"type": "user", "id": "alice"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 3 {
+		t.Fatalf("expected 3 actions, got %d: %v", len(resp.Results), resp.Results)
+	}
+}
+
+func TestActionSearch_IgnoresActionKey(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	// Spec Section 8.3 omits the "action" key, but unknown/extra fields
+	// MUST be ignored (Section 10.1.2).
+	w := doSearch(t, p, "/access/v1/search/action", `{
+		"subject": {"type": "user", "id": "alice"},
+		"resource": {"type": "account", "id": "100"},
+		"action": {"name": "garbage"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSearch_PaginationFollowToken(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+
+	// First page: limit 2 of 4 users.
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 2}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var first searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Results) != 2 {
+		t.Fatalf("page 1: expected 2 results, got %d", len(first.Results))
+	}
+	if first.Page == nil || first.Page.NextToken == "" {
+		t.Fatal("page 1: expected non-empty next_token")
+	}
+
+	// Second page using token; entities and limit MUST match.
+	body := fmt.Sprintf(`{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 2, "token": %q}
+	}`, first.Page.NextToken)
+	w = doSearch(t, p, "/access/v1/search/subject", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("page 2: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var second searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Results) != 2 {
+		t.Fatalf("page 2: expected 2 results, got %d", len(second.Results))
+	}
+	if second.Page == nil || second.Page.NextToken != "" {
+		t.Fatalf("page 2: expected empty next_token, got %+v", second.Page)
+	}
+	// Pages must not repeat entities.
+	seen := map[string]bool{}
+	for _, r := range append(first.Results, second.Results...) {
+		obj := r.(map[string]any)
+		key := obj["id"].(string)
+		if seen[key] {
+			t.Fatalf("duplicate result across pages: %s", key)
+		}
+		seen[key] = true
+	}
+	if len(seen) != 4 {
+		t.Fatalf("expected 4 unique results across pages, got %d", len(seen))
+	}
+}
+
+func TestSearch_PaginationTokenMismatch(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 2}
+	}`)
+	var first searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Page == nil || first.Page.NextToken == "" {
+		t.Fatal("expected token from first page")
+	}
+
+	// Replay with the same token but a different resource id.
+	body := fmt.Sprintf(`{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "999"},
+		"page": {"limit": 2, "token": %q}
+	}`, first.Page.NextToken)
+	w = doSearch(t, p, "/access/v1/search/subject", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on tampered token, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSearch_PaginationInvalidToken(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"token": "!!!not-base64!!!"}
+	}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSearch_LimitClamp(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	p.cfg.Search.MaxLimit = 2
+
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 999}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 2 {
+		t.Fatalf("expected results clamped to MaxLimit=2, got %d", len(resp.Results))
+	}
+}
+
+func TestSearch_NegativeLimit(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": -1}
+	}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSearch_RequestIDEcho(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/search/subject", bytes.NewBufferString(`{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "search-req-77")
+	w := httptest.NewRecorder()
+	p.handleSubjectSearch(w, req)
+	if got := w.Header().Get("X-Request-ID"); got != "search-req-77" {
+		t.Fatalf("expected X-Request-ID echoed, got %q", got)
+	}
+}
+
+func TestSearch_ContentTypeRequired(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/search/subject", bytes.NewBufferString(`{}`))
+	w := httptest.NewRecorder()
+	p.handleSubjectSearch(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing Content-Type, got %d", w.Code)
+	}
+}
+
+func TestSearch_InvalidBody(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+	w := doSearch(t, p, "/access/v1/search/subject", "not json")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSearch_EmptyResults(t *testing.T) {
+	// Rule that returns nothing for non-matching input.
+	p := testSearchPlugin(t, `
+		package authzen
+		subject_search contains {"type": "user", "id": u} if {
+			some u in []
+		}
+	`)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 0 {
+		t.Fatalf("expected empty results, got %d", len(resp.Results))
+	}
+	if resp.Page == nil || resp.Page.NextToken != "" {
+		t.Fatalf("expected next_token=\"\" on final/empty page, got %+v", resp.Page)
+	}
+}
+
+func TestWellKnown_NoSearchEndpointsByDefault(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	// Decode into a generic map so we can assert keys are absent.
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"search_subject_endpoint", "search_resource_endpoint", "search_action_endpoint"} {
+		if _, present := raw[key]; present {
+			t.Fatalf("expected %q to be absent when search is not configured", key)
+		}
+	}
+}
+
+func TestWellKnown_AdvertisesConfiguredSearchEndpoints(t *testing.T) {
+	p := testSearchPlugin(t, `package authzen`)
+	// Disable action search to verify selective advertisement.
+	p.cfg.Search.Action = ""
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "pdp.example.com"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	var md pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &md); err != nil {
+		t.Fatal(err)
+	}
+	if md.SearchSubjectEndpoint != "http://pdp.example.com/access/v1/search/subject" {
+		t.Fatalf("unexpected subject endpoint: %q", md.SearchSubjectEndpoint)
+	}
+	if md.SearchResourceEndpoint != "http://pdp.example.com/access/v1/search/resource" {
+		t.Fatalf("unexpected resource endpoint: %q", md.SearchResourceEndpoint)
+	}
+	if md.SearchActionEndpoint != "" {
+		t.Fatalf("expected action endpoint to be omitted, got %q", md.SearchActionEndpoint)
 	}
 }
