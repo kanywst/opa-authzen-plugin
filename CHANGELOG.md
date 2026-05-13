@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `search` config block (`subject`, `resource`, `action`, `max_limit`) selecting Rego rules per endpoint
 - PDP metadata now advertises `search_subject_endpoint`, `search_resource_endpoint`, and `search_action_endpoint` when the corresponding rule is configured (omitted otherwise per Section 9)
 - Example policy rules and config showing how to expose the Search APIs
+- `Cache-Control: public, max-age=3600` on the PDP metadata response (`GET /.well-known/authzen-configuration`) so PEPs and intermediaries can cache the discovery document per spec Section 11.9
 
 ### Fixed
 

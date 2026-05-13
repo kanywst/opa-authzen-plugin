@@ -224,6 +224,23 @@ func TestWellKnown(t *testing.T) {
 	}
 }
 
+// TestWellKnownCacheControl verifies that the PDP metadata response
+// advertises a Cache-Control header so PEPs and intermediaries can cache
+// the discovery document (Section 11.9 of the AuthZEN spec).
+func TestWellKnownCacheControl(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+
+	p.handleWellKnown(w, req)
+
+	if got := w.Header().Get("Cache-Control"); got != "public, max-age=3600" {
+		t.Fatalf("expected Cache-Control=\"public, max-age=3600\", got %q", got)
+	}
+}
+
 func TestXRequestIDEcho(t *testing.T) {
 	p := testPlugin(t, `
 		package authzen
