@@ -2537,6 +2537,41 @@ func TestSearch_RejectsMistypedActionResults(t *testing.T) {
 	}
 }
 
+// TestSearch_RejectsSubjectResultsMissingID: Section 5 makes `id` REQUIRED
+// on Subject entities. A subject_search rule that emits only `type` would
+// hand back an entity the PEP cannot re-evaluate, so reject it as a
+// policy-authoring error.
+func TestSearch_RejectsSubjectResultsMissingID(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		subject_search contains {"type": "user"} if true
+	`)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestSearch_RejectsResourceResultsMissingID: same as above, for resources.
+func TestSearch_RejectsResourceResultsMissingID(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		resource_search contains {"type": "account"} if true
+	`)
+	w := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account"}
+	}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestWellKnown_NoSearchEndpointsByDefault(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
