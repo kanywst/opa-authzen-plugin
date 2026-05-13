@@ -982,17 +982,17 @@ func resolveSearchLimit(page *pageRequest, configMax int) (int, string) {
 // normaliseSearchResults coerces the Rego query result to a JSON-serializable
 // list of entity objects. The plugin accepts either an array or a set; each
 // element must itself be a JSON object so callers can rely on the AuthZEN
-// information model (Section 5). Results are sorted by a stable identifier
-// key so pagination is deterministic.
+// information model (Section 5). Each entity is further required to carry
+// the identifying field for the searched-for type (Section 8.4: results
+// MUST contain only entities of the type being searched for): `type` for
+// Subject/Resource Search and `name` for Action Search. Results are sorted
+// by a stable identifier key so pagination is deterministic.
 func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 	if raw == nil {
 		return []any{}, ""
 	}
-	var list []any
-	switch v := raw.(type) {
-	case []any:
-		list = v
-	default:
+	list, ok := raw.([]any)
+	if !ok {
 		return nil, fmt.Sprintf("search rule must return an array; got %T", raw)
 	}
 	out := make([]any, 0, len(list))
@@ -1001,12 +1001,36 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 		if !ok {
 			return nil, fmt.Sprintf("search rule must return objects; got %T", item)
 		}
+		if errMsg := validateSearchEntity(obj, kind); errMsg != "" {
+			return nil, errMsg
+		}
 		out = append(out, obj)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return searchEntityKey(out[i].(map[string]any), kind) < searchEntityKey(out[j].(map[string]any), kind)
 	})
 	return out, ""
+}
+
+// validateSearchEntity enforces Section 8.4: the `results` array MUST
+// contain only entities of the type being searched for. The plugin checks
+// the canonical identifier — `type` (string) for Subject/Resource Search,
+// `name` (string) for Action Search — which is what distinguishes the
+// AuthZEN entity kinds in the Information Model (Section 5).
+func validateSearchEntity(entity map[string]any, kind searchKind) string {
+	if kind == searchAction {
+		if !hasStringField(entity, "name") {
+			return "action search rule must return entities with a string `name` field"
+		}
+		return ""
+	}
+	if !hasStringField(entity, "type") {
+		if kind == searchSubject {
+			return "subject search rule must return entities with a string `type` field"
+		}
+		return "resource search rule must return entities with a string `type` field"
+	}
+	return ""
 }
 
 // searchEntityKey extracts a stable string key for an entity, used solely
