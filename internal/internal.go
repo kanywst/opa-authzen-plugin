@@ -2,9 +2,13 @@ package internal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 
@@ -30,12 +34,39 @@ const (
 	// batch request. This protects against resource exhaustion from requests
 	// containing an excessive number of evaluation items (Section 11.7).
 	maxBatchSize = 100
+
+	// defaultSearchMaxLimit caps the per-page result size for Search APIs
+	// (Section 8.5) when the operator does not override it via config.
+	defaultSearchMaxLimit = 1000
+)
+
+// searchKind identifies which AuthZEN Search API a request targets (Section 8).
+type searchKind int
+
+const (
+	searchSubject searchKind = iota
+	searchResource
+	searchAction
 )
 
 // Config represents the plugin configuration.
 type Config struct {
-	Path     string `json:"path"`
-	Decision string `json:"decision"`
+	Path     string       `json:"path"`
+	Decision string       `json:"decision"`
+	Search   SearchConfig `json:"search"`
+}
+
+// SearchConfig configures the optional Search APIs (Section 8 of the AuthZEN
+// specification). Each field names a Rego rule (within the package given by
+// Config.Path) that returns the set of permitted entities. Leaving a field
+// empty disables the corresponding endpoint, which responds with 501.
+type SearchConfig struct {
+	Subject  string `json:"subject,omitempty"`
+	Resource string `json:"resource,omitempty"`
+	Action   string `json:"action,omitempty"`
+	// MaxLimit caps the per-page result size requested by clients. A value of
+	// 0 selects the default (defaultSearchMaxLimit).
+	MaxLimit int `json:"max_limit,omitempty"`
 }
 
 // Validate parses and validates the plugin configuration.
@@ -47,6 +78,10 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 
 	if err := util.Unmarshal(bs, &cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.Search.MaxLimit < 0 {
+		return nil, fmt.Errorf("search.max_limit must be non-negative")
 	}
 
 	return &cfg, nil
@@ -83,6 +118,9 @@ func (p *AuthZenPlugin) Start(_ context.Context) error {
 		p.logger.Info("Starting AuthZEN plugin")
 		p.manager.ExtraRoute("POST /access/v1/evaluation", "authzen/evaluation", p.handleEvaluation)
 		p.manager.ExtraRoute("POST /access/v1/evaluations", "authzen/evaluations", p.handleEvaluations)
+		p.manager.ExtraRoute("POST /access/v1/search/subject", "authzen/search-subject", p.handleSubjectSearch)
+		p.manager.ExtraRoute("POST /access/v1/search/resource", "authzen/search-resource", p.handleResourceSearch)
+		p.manager.ExtraRoute("POST /access/v1/search/action", "authzen/search-action", p.handleActionSearch)
 		p.manager.ExtraRoute("GET /.well-known/authzen-configuration", "authzen/well-known", p.handleWellKnown)
 	}
 
@@ -160,7 +198,49 @@ type pdpMetadata struct {
 	PolicyDecisionPoint       string   `json:"policy_decision_point"`
 	AccessEvaluationEndpoint  string   `json:"access_evaluation_endpoint"`
 	AccessEvaluationsEndpoint string   `json:"access_evaluations_endpoint"`
+	SearchSubjectEndpoint     string   `json:"search_subject_endpoint,omitempty"`
+	SearchResourceEndpoint    string   `json:"search_resource_endpoint,omitempty"`
+	SearchActionEndpoint      string   `json:"search_action_endpoint,omitempty"`
 	Capabilities              []string `json:"capabilities,omitempty"`
+}
+
+// AuthZEN Search API request (Section 8.1/8.2/8.3).
+type searchRequest struct {
+	Subject  json.RawMessage `json:"subject,omitempty"`
+	Resource json.RawMessage `json:"resource,omitempty"`
+	Action   json.RawMessage `json:"action,omitempty"`
+	Context  json.RawMessage `json:"context,omitempty"`
+	Page     *pageRequest    `json:"page,omitempty"`
+}
+
+// pageRequest is the AuthZEN paginated request page object (Section 8.5.1).
+type pageRequest struct {
+	Token      string          `json:"token,omitempty"`
+	Limit      *int            `json:"limit,omitempty"`
+	Properties json.RawMessage `json:"properties,omitempty"`
+}
+
+// AuthZEN Search API response (Section 8.4).
+type searchResponse struct {
+	Page    *pageResponse   `json:"page,omitempty"`
+	Context json.RawMessage `json:"context,omitempty"`
+	Results []any           `json:"results"`
+}
+
+// pageResponse is the AuthZEN paginated response page object (Section 8.5.2).
+type pageResponse struct {
+	NextToken string `json:"next_token"`
+	Count     *int   `json:"count,omitempty"`
+	Total     *int   `json:"total,omitempty"`
+}
+
+// pageToken is the decoded form of an opaque pagination token. The hash binds
+// a token to the request that produced it, so callers cannot mutate query
+// entities between pages (Section 8.5: PDP SHOULD return an error in that
+// case).
+type pageToken struct {
+	Offset int    `json:"o"`
+	Hash   string `json:"h"`
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {
@@ -244,6 +324,79 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 	input["resource"] = resourceVal
 
 	// context is OPTIONAL (Section 5). JSON null is treated as absent.
+	if ctx != nil && !isJSONNull(ctx) {
+		ctxVal, errMsg := validateObject(ctx, "context")
+		if errMsg != "" {
+			return nil, errMsg
+		}
+		input["context"] = ctxVal
+	}
+
+	return input, ""
+}
+
+// buildSearchInput assembles the OPA input map for a Search API request
+// (Section 8). The kind selects which entity is the search target: that
+// entity requires only "type" (or "name" for Action) and may omit the
+// identifier; the remaining entities are validated as for Access Evaluation.
+func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMessage) (map[string]any, string) {
+	input := map[string]any{}
+
+	// Subject: required for Resource/Action Search (full), partial for Subject Search.
+	if subject == nil || isJSONNull(subject) {
+		return nil, "subject is required"
+	}
+	subjectVal, errMsg := validateObject(subject, "subject")
+	if errMsg != "" {
+		return nil, errMsg
+	}
+	if !hasStringField(subjectVal, "type") {
+		return nil, "subject.type is required and must be a string"
+	}
+	if kind == searchSubject {
+		// Spec Section 8.1: subject.id SHOULD be omitted, and if present MUST be ignored.
+		delete(subjectVal, "id")
+	} else if !hasStringField(subjectVal, "id") {
+		return nil, "subject.id is required and must be a string"
+	}
+	input["subject"] = subjectVal
+
+	// Action: required for Subject/Resource Search; omitted for Action Search.
+	if kind != searchAction {
+		if action == nil || isJSONNull(action) {
+			return nil, "action is required"
+		}
+		actionVal, errMsg := validateObject(action, "action")
+		if errMsg != "" {
+			return nil, errMsg
+		}
+		if !hasStringField(actionVal, "name") {
+			return nil, "action.name is required and must be a string"
+		}
+		input["action"] = actionVal
+	}
+	// Section 10.1.2 requires receivers to ignore unknown fields; a stray
+	// "action" key in an Action Search request is silently discarded.
+
+	// Resource: required for Subject/Action Search (full), partial for Resource Search.
+	if resource == nil || isJSONNull(resource) {
+		return nil, "resource is required"
+	}
+	resourceVal, errMsg := validateObject(resource, "resource")
+	if errMsg != "" {
+		return nil, errMsg
+	}
+	if !hasStringField(resourceVal, "type") {
+		return nil, "resource.type is required and must be a string"
+	}
+	if kind == searchResource {
+		// Spec Section 8.2: resource.id SHOULD be omitted, and if present MUST be ignored.
+		delete(resourceVal, "id")
+	} else if !hasStringField(resourceVal, "id") {
+		return nil, "resource.id is required and must be a string"
+	}
+	input["resource"] = resourceVal
+
 	if ctx != nil && !isJSONNull(ctx) {
 		ctxVal, errMsg := validateObject(ctx, "context")
 		if errMsg != "" {
@@ -354,16 +507,29 @@ func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction
 	decisionRule := p.cfg.Decision
 	p.mu.RUnlock()
 
+	val, err := p.evalRuleWithTxn(ctx, txn, input, path, decisionRule)
+	if err != nil {
+		return false, path, decisionRule, err
+	}
+	decision, _ := val.(bool)
+	return decision, path, decisionRule, nil
+}
+
+// evalRuleWithTxn evaluates an arbitrary rule under the configured package
+// path and returns the raw value. Used by both the Access Evaluation and
+// Search handlers. An optional existing transaction may be passed; if nil,
+// a fresh one is created and aborted on return.
+func (p *AuthZenPlugin) evalRuleWithTxn(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (any, error) {
 	var err error
 	if txn == nil {
 		txn, err = p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
 		if err != nil {
-			return false, path, decisionRule, fmt.Errorf("creating transaction: %w", err)
+			return nil, fmt.Errorf("creating transaction: %w", err)
 		}
 		defer p.manager.Store.Abort(ctx, txn)
 	}
 
-	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), decisionRule)
+	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), rule)
 
 	r := rego.New(
 		rego.Compiler(p.manager.GetCompiler()),
@@ -375,19 +541,14 @@ func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction
 
 	rs, err := r.Eval(ctx)
 	if err != nil {
-		return false, path, decisionRule, fmt.Errorf("evaluating policy: %w", err)
+		return nil, fmt.Errorf("evaluating policy: %w", err)
 	}
 
 	if len(rs) == 0 || len(rs[0].Expressions) == 0 {
-		return false, path, decisionRule, nil
+		return nil, nil
 	}
 
-	decision, ok := rs[0].Expressions[0].Value.(bool)
-	if !ok {
-		return false, path, decisionRule, nil
-	}
-
-	return decision, path, decisionRule, nil
+	return rs[0].Expressions[0].Value, nil
 }
 
 // Access Evaluations API handler (Section 7).
@@ -578,8 +739,306 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 		AccessEvaluationsEndpoint: base + "/access/v1/evaluations",
 	}
 
+	// Spec Section 9: omit search_*_endpoint when the corresponding rule is
+	// unconfigured. Absence is the PEP's signal that the PDP is not capable.
+	p.mu.RLock()
+	search := p.cfg.Search
+	p.mu.RUnlock()
+	if search.Subject != "" {
+		metadata.SearchSubjectEndpoint = base + "/access/v1/search/subject"
+	}
+	if search.Resource != "" {
+		metadata.SearchResourceEndpoint = base + "/access/v1/search/resource"
+	}
+	if search.Action != "" {
+		metadata.SearchActionEndpoint = base + "/access/v1/search/action"
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		p.logger.Error("AuthZEN well-known: failed to encode response: %v", err)
 	}
+}
+
+// handleSubjectSearch serves POST /access/v1/search/subject (Section 8.1).
+func (p *AuthZenPlugin) handleSubjectSearch(w http.ResponseWriter, r *http.Request) {
+	p.handleSearch(w, r, searchSubject)
+}
+
+// handleResourceSearch serves POST /access/v1/search/resource (Section 8.2).
+func (p *AuthZenPlugin) handleResourceSearch(w http.ResponseWriter, r *http.Request) {
+	p.handleSearch(w, r, searchResource)
+}
+
+// handleActionSearch serves POST /access/v1/search/action (Section 8.3).
+func (p *AuthZenPlugin) handleActionSearch(w http.ResponseWriter, r *http.Request) {
+	p.handleSearch(w, r, searchAction)
+}
+
+// handleSearch implements the shared lifecycle for all three Search APIs:
+// request validation (Section 8), single Rego evaluation, deterministic
+// ordering, and stateless pagination over the resulting entity list
+// (Section 8.5). The kind selects per-endpoint rules and the configured
+// target rule.
+func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kind searchKind) {
+	if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
+		w.Header().Set("X-Request-ID", reqID)
+	}
+
+	p.mu.RLock()
+	stopped := p.stopped
+	path := p.cfg.Path
+	search := p.cfg.Search
+	p.mu.RUnlock()
+	if stopped {
+		jsonError(w, "plugin is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+
+	ruleName := searchRuleName(search, kind)
+	if ruleName == "" {
+		jsonError(w, "search endpoint not configured", http.StatusNotImplemented)
+		return
+	}
+
+	if ct := r.Header.Get("Content-Type"); ct != "application/json" && !strings.HasPrefix(ct, "application/json;") {
+		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
+	var req searchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	input, errMsg := buildSearchInput(kind, req.Subject, req.Action, req.Resource, req.Context)
+	if errMsg != "" {
+		jsonError(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	limit, errMsg := resolveSearchLimit(req.Page, search.MaxLimit)
+	if errMsg != "" {
+		jsonError(w, errMsg, http.StatusBadRequest)
+		return
+	}
+
+	// Bind subsequent pages to the original request (Section 8.5).
+	reqHash := searchRequestHash(req.Subject, req.Action, req.Resource, req.Context, limit)
+	offset := 0
+	if req.Page != nil && req.Page.Token != "" {
+		tok, err := decodePageToken(req.Page.Token)
+		if err != nil {
+			jsonError(w, "invalid page token", http.StatusBadRequest)
+			return
+		}
+		if tok.Hash != reqHash {
+			jsonError(w, "page token does not match request", http.StatusBadRequest)
+			return
+		}
+		offset = tok.Offset
+	}
+
+	raw, err := p.evalRuleWithTxn(r.Context(), nil, input, path, ruleName)
+	if err != nil {
+		p.logger.WithFields(map[string]any{"path": path, "rule": ruleName, "error": err}).Error("AuthZEN search error")
+		jsonError(w, "search evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	entities, errMsg := normaliseSearchResults(raw, kind)
+	if errMsg != "" {
+		p.logger.WithFields(map[string]any{"path": path, "rule": ruleName, "error": errMsg}).Error("AuthZEN search: invalid policy result")
+		jsonError(w, "search evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	total := len(entities)
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if limit > 0 && offset+limit < total {
+		end = offset + limit
+	}
+	page := entities[offset:end]
+	pageCount := len(page)
+
+	resp := searchResponse{Results: page}
+	// next_token is REQUIRED whenever the response does not contain the
+	// entire result set (Section 8.5.2). Always emit a page object so
+	// pagination state is unambiguous.
+	nextToken := ""
+	if end < total {
+		nextToken = encodePageToken(pageToken{Offset: end, Hash: reqHash})
+	}
+	totalCopy := total
+	countCopy := pageCount
+	resp.Page = &pageResponse{
+		NextToken: nextToken,
+		Count:     &countCopy,
+		Total:     &totalCopy,
+	}
+
+	p.logger.WithFields(map[string]any{
+		"path":     path,
+		"rule":     ruleName,
+		"kind":     kind,
+		"total":    total,
+		"returned": pageCount,
+		"offset":   offset,
+	}).Debug("AuthZEN search")
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		p.logger.Error("AuthZEN search: failed to encode response: %v", err)
+	}
+}
+
+// searchRuleName returns the configured Rego rule for the given search kind,
+// or the empty string if the endpoint is disabled.
+func searchRuleName(s SearchConfig, kind searchKind) string {
+	switch kind {
+	case searchSubject:
+		return s.Subject
+	case searchResource:
+		return s.Resource
+	case searchAction:
+		return s.Action
+	}
+	return ""
+}
+
+// resolveSearchLimit applies request and configuration bounds to the page
+// limit. A negative limit is rejected; an unset limit means "no per-page
+// cap" beyond the configured maximum.
+func resolveSearchLimit(page *pageRequest, configMax int) (int, string) {
+	maxLimit := configMax
+	if maxLimit <= 0 {
+		maxLimit = defaultSearchMaxLimit
+	}
+	if page == nil || page.Limit == nil {
+		return maxLimit, ""
+	}
+	if *page.Limit < 0 {
+		return 0, "page.limit must be non-negative"
+	}
+	if *page.Limit == 0 || *page.Limit > maxLimit {
+		return maxLimit, ""
+	}
+	return *page.Limit, ""
+}
+
+// normaliseSearchResults coerces the Rego query result to a JSON-serializable
+// list of entity objects. The plugin accepts either an array or a set; each
+// element must itself be a JSON object so callers can rely on the AuthZEN
+// information model (Section 5). Results are sorted by a stable identifier
+// key so pagination is deterministic.
+func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
+	if raw == nil {
+		return []any{}, ""
+	}
+	var list []any
+	switch v := raw.(type) {
+	case []any:
+		list = v
+	default:
+		return nil, fmt.Sprintf("search rule must return an array; got %T", raw)
+	}
+	out := make([]any, 0, len(list))
+	for _, item := range list {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Sprintf("search rule must return objects; got %T", item)
+		}
+		out = append(out, obj)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return searchEntityKey(out[i].(map[string]any), kind) < searchEntityKey(out[j].(map[string]any), kind)
+	})
+	return out, ""
+}
+
+// searchEntityKey extracts a stable string key for an entity, used solely
+// for ordering between pages. Falls back to the JSON encoding when the
+// natural identifier is absent.
+func searchEntityKey(entity map[string]any, kind searchKind) string {
+	if kind == searchAction {
+		if name, ok := entity["name"].(string); ok {
+			return name
+		}
+	} else {
+		t, _ := entity["type"].(string)
+		id, _ := entity["id"].(string)
+		if t != "" || id != "" {
+			return t + "\x00" + id
+		}
+	}
+	b, _ := json.Marshal(entity)
+	return string(b)
+}
+
+// searchRequestHash binds a pagination token to the entity payload (and
+// limit) of its originating request. Section 8.5 requires the PDP to detect
+// when callers change parameters mid-pagination.
+func searchRequestHash(subject, action, resource, ctx json.RawMessage, limit int) string {
+	h := sha256.New()
+	hashField(h, "subject", subject)
+	hashField(h, "action", action)
+	hashField(h, "resource", resource)
+	hashField(h, "context", ctx)
+	_, _ = fmt.Fprintf(h, "limit\x00%d\x00", limit)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// hashField writes a delimited, canonicalised representation of a request
+// field into h. A nil or JSON-null value is represented as an empty section
+// so callers cannot tunnel data through differing-but-equivalent encodings.
+func hashField(h interface{ Write([]byte) (int, error) }, name string, raw json.RawMessage) {
+	_, _ = h.Write([]byte(name))
+	_, _ = h.Write([]byte{0})
+	if len(raw) == 0 || isJSONNull(raw) {
+		_, _ = h.Write([]byte{0})
+		return
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		_, _ = h.Write(raw)
+		_, _ = h.Write([]byte{0})
+		return
+	}
+	canon, err := json.Marshal(v)
+	if err != nil {
+		_, _ = h.Write(raw)
+	} else {
+		_, _ = h.Write(canon)
+	}
+	_, _ = h.Write([]byte{0})
+}
+
+// encodePageToken returns a URL-safe base64 representation of the page
+// token. The token is opaque to clients (Section 8.5).
+func encodePageToken(t pageToken) string {
+	b, _ := json.Marshal(t)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// decodePageToken reverses encodePageToken, returning an error if the token
+// is not a valid base64-encoded pageToken JSON object.
+func decodePageToken(s string) (pageToken, error) {
+	b, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return pageToken{}, err
+	}
+	var t pageToken
+	if err := json.Unmarshal(b, &t); err != nil {
+		return pageToken{}, err
+	}
+	if t.Offset < 0 {
+		return pageToken{}, fmt.Errorf("negative offset")
+	}
+	return t, nil
 }
