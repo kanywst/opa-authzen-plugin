@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- AuthZEN Search APIs (spec Section 8): `POST /access/v1/search/subject`, `POST /access/v1/search/resource`, `POST /access/v1/search/action`
+- Stateless opaque-token pagination (Section 8.5) with `next_token`, `count`, and `total` fields; mid-pagination tampering returns 400
+- New `search` config block (`subject`, `resource`, `action`, `max_limit`) selecting Rego rules per endpoint
+- PDP metadata now advertises `search_subject_endpoint`, `search_resource_endpoint`, and `search_action_endpoint` when the corresponding rule is configured (omitted otherwise per Section 9)
+- Example policy rules and config showing how to expose the Search APIs
+
 ---
 
 ## [v0.2.5] - 2026-04-28
