@@ -323,6 +323,11 @@ func TestRejectsInvalidInformationModel(t *testing.T) {
 		{"context is array", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": [1,2]}`, "context must be a JSON object"},
 		{"context is number", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": 42}`, "context must be a JSON object"},
 		{"context is bool", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}, "context": true}`, "context must be a JSON object"},
+		// properties validation (Section 5: properties MUST be an object when present)
+		{"subject.properties is string", `{"subject": {"type": "user", "id": "bob", "properties": "x"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.properties must be a JSON object"},
+		{"subject.properties is array", `{"subject": {"type": "user", "id": "bob", "properties": [1]}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1"}}`, "subject.properties must be a JSON object"},
+		{"action.properties is number", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read", "properties": 1}, "resource": {"type": "doc", "id": "1"}}`, "action.properties must be a JSON object"},
+		{"resource.properties is bool", `{"subject": {"type": "user", "id": "bob"}, "action": {"name": "read"}, "resource": {"type": "doc", "id": "1", "properties": true}}`, "resource.properties must be a JSON object"},
 	}
 
 	for _, tt := range tests {
@@ -346,6 +351,64 @@ func TestRejectsInvalidInformationModel(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPropertiesAccepted verifies that valid object-valued `properties`
+// (Section 5: OPTIONAL, object) flow through to OPA input and are
+// available to the policy.
+func TestPropertiesAccepted(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if {
+			input.subject.properties.role == "admin"
+			input.action.properties.method == "GET"
+			input.resource.properties.tier == "premium"
+		}
+	`)
+	body := `{
+		"subject": {"type": "user", "id": "alice", "properties": {"role": "admin"}},
+		"action": {"name": "read", "properties": {"method": "GET"}},
+		"resource": {"type": "doc", "id": "1", "properties": {"tier": "premium"}}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluation(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp evaluationResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Fatalf("expected decision=true, body=%s", w.Body.String())
+	}
+}
+
+// TestPropertiesNullTreatedAsAbsent verifies that JSON null `properties`
+// is silently dropped rather than rejected. Section 11.5 recommends that
+// senders omit null values, so accepting them is the forward-compatible
+// behaviour.
+func TestPropertiesNullTreatedAsAbsent(t *testing.T) {
+	p := testPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`)
+	body := `{
+		"subject": {"type": "user", "id": "alice", "properties": null},
+		"action": {"name": "read", "properties": null},
+		"resource": {"type": "doc", "id": "1", "properties": null}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluation(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
