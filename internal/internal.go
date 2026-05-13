@@ -1012,11 +1012,17 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 	return out, ""
 }
 
-// validateSearchEntity enforces Section 8.4: the `results` array MUST
-// contain only entities of the type being searched for. The plugin checks
-// the canonical identifier — `type` (string) for Subject/Resource Search,
-// `name` (string) for Action Search — which is what distinguishes the
-// AuthZEN entity kinds in the Information Model (Section 5).
+// validateSearchEntity enforces Section 8.4 ("results MUST contain only
+// entities of the type being searched for") together with the entity
+// shape requirements from Section 5 of the Information Model:
+//
+//   - Subject: REQUIRED `type` and `id`, both strings.
+//   - Resource: REQUIRED `type` and `id`, both strings.
+//   - Action: REQUIRED `name`, string. (Action has no `id`.)
+//
+// A policy that omits one of these fields would return an entity that the
+// PEP could not feed back into Access Evaluation (since `id`/`name` is
+// also required there), so we reject it as a policy-authoring error.
 func validateSearchEntity(entity map[string]any, kind searchKind) string {
 	if kind == searchAction {
 		if !hasStringField(entity, "name") {
@@ -1024,11 +1030,15 @@ func validateSearchEntity(entity map[string]any, kind searchKind) string {
 		}
 		return ""
 	}
+	prefix := "subject"
+	if kind == searchResource {
+		prefix = "resource"
+	}
 	if !hasStringField(entity, "type") {
-		if kind == searchSubject {
-			return "subject search rule must return entities with a string `type` field"
-		}
-		return "resource search rule must return entities with a string `type` field"
+		return prefix + " search rule must return entities with a string `type` field"
+	}
+	if !hasStringField(entity, "id") {
+		return prefix + " search rule must return entities with a string `id` field"
 	}
 	return ""
 }
