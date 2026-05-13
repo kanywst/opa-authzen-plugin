@@ -2,3 +2,12 @@ plugins:
   authzen:
     path: "authzen"
     decision: "allow"
+    # Optional: enable AuthZEN Search APIs (spec Section 8). Each field names
+    # a Rego rule, in the package given by `path`, that returns the set of
+    # permitted entities for a partial input. Omit a field to disable the
+    # corresponding endpoint (which then responds with 501).
+    search:
+      subject: "subject_search"
+      resource: "resource_search"
+      action: "action_search"
+      # max_limit: 1000  # per-page cap; defaults to 1000 when unset
