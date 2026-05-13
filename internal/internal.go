@@ -266,13 +266,16 @@ func hasStringField(obj map[string]any, field string) bool {
 	return ok
 }
 
-// validatePropertiesField enforces that, when an entity's optional
+// normalizePropertiesField enforces that, when an entity's optional
 // `properties` member is present, it is a JSON object (Section 5 of the
 // AuthZEN spec defines `properties` as OPTIONAL with an object value).
-// JSON null is treated as absent and silently dropped from obj. Returns
-// an empty string on success, or the validation error message when
-// `properties` is present but not an object.
-func validatePropertiesField(obj map[string]any, name string) string {
+// JSON null is normalized away — it is deleted from obj in place so
+// downstream code sees the field as absent (Section 11.5 recommends
+// senders omit nulls; we accept and normalize them for forward
+// compatibility). Returns an empty string on success, or a validation
+// error message when `properties` is present but not an object. The
+// function mutates obj; callers pass it by reference deliberately.
+func normalizePropertiesField(obj map[string]any, name string) string {
 	value, ok := obj["properties"]
 	if !ok {
 		return ""
@@ -323,7 +326,7 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 	if !hasStringField(subjectVal, "id") {
 		return nil, "subject.id is required and must be a string"
 	}
-	if errMsg := validatePropertiesField(subjectVal, "subject"); errMsg != "" {
+	if errMsg := normalizePropertiesField(subjectVal, "subject"); errMsg != "" {
 		return nil, errMsg
 	}
 	input["subject"] = subjectVal
@@ -335,7 +338,7 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 	if !hasStringField(actionVal, "name") {
 		return nil, "action.name is required and must be a string"
 	}
-	if errMsg := validatePropertiesField(actionVal, "action"); errMsg != "" {
+	if errMsg := normalizePropertiesField(actionVal, "action"); errMsg != "" {
 		return nil, errMsg
 	}
 	input["action"] = actionVal
@@ -350,7 +353,7 @@ func buildInput(subject, action, resource, ctx json.RawMessage) (map[string]any,
 	if !hasStringField(resourceVal, "id") {
 		return nil, "resource.id is required and must be a string"
 	}
-	if errMsg := validatePropertiesField(resourceVal, "resource"); errMsg != "" {
+	if errMsg := normalizePropertiesField(resourceVal, "resource"); errMsg != "" {
 		return nil, errMsg
 	}
 	input["resource"] = resourceVal
@@ -391,7 +394,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 	} else if !hasStringField(subjectVal, "id") {
 		return nil, "subject.id is required and must be a string"
 	}
-	if errMsg := validatePropertiesField(subjectVal, "subject"); errMsg != "" {
+	if errMsg := normalizePropertiesField(subjectVal, "subject"); errMsg != "" {
 		return nil, errMsg
 	}
 	input["subject"] = subjectVal
@@ -408,7 +411,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 		if !hasStringField(actionVal, "name") {
 			return nil, "action.name is required and must be a string"
 		}
-		if errMsg := validatePropertiesField(actionVal, "action"); errMsg != "" {
+		if errMsg := normalizePropertiesField(actionVal, "action"); errMsg != "" {
 			return nil, errMsg
 		}
 		input["action"] = actionVal
@@ -433,7 +436,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 	} else if !hasStringField(resourceVal, "id") {
 		return nil, "resource.id is required and must be a string"
 	}
-	if errMsg := validatePropertiesField(resourceVal, "resource"); errMsg != "" {
+	if errMsg := normalizePropertiesField(resourceVal, "resource"); errMsg != "" {
 		return nil, errMsg
 	}
 	input["resource"] = resourceVal
