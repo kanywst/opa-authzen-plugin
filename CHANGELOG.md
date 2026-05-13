@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PDP metadata now advertises `search_subject_endpoint`, `search_resource_endpoint`, and `search_action_endpoint` when the corresponding rule is configured (omitted otherwise per Section 9)
 - Example policy rules and config showing how to expose the Search APIs
 
+### Fixed
+
+- Reject requests where `subject.properties`, `resource.properties`, or `action.properties` is present but not a JSON object (spec Section 5: properties is OPTIONAL and MUST be an object). JSON null is still accepted and silently dropped.
+
 ---
 
 ## [v0.2.5] - 2026-04-28
