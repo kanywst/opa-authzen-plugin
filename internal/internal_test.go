@@ -225,8 +225,10 @@ func TestWellKnown(t *testing.T) {
 }
 
 // TestWellKnownCacheControl verifies that the PDP metadata response
-// advertises a Cache-Control header so PEPs and intermediaries can cache
-// the discovery document (Section 11.9 of the AuthZEN spec).
+// advertises Cache-Control + Vary so PEPs and shared caches can store
+// the discovery document without serving cross-tenant responses
+// (Section 11.9 of the AuthZEN spec; RFC 9111 §4.1 for the Vary
+// requirement on header-dependent payloads).
 func TestWellKnownCacheControl(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 
@@ -236,8 +238,14 @@ func TestWellKnownCacheControl(t *testing.T) {
 
 	p.handleWellKnown(w, req)
 
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
 	if got := w.Header().Get("Cache-Control"); got != "public, max-age=3600" {
 		t.Fatalf("expected Cache-Control=\"public, max-age=3600\", got %q", got)
+	}
+	if got := w.Header().Get("Vary"); got != "X-Forwarded-Proto, X-Forwarded-Host" {
+		t.Fatalf("expected Vary=\"X-Forwarded-Proto, X-Forwarded-Host\", got %q", got)
 	}
 }
 

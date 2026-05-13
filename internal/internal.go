@@ -45,6 +45,22 @@ const (
 	// response. 1 hour is short enough that operators can roll changes
 	// without intervention but long enough to offload re-discovery traffic.
 	metadataCacheControl = "public, max-age=3600"
+
+	// metadataVary lists request headers that vary the metadata response
+	// body. The endpoint URLs are constructed from X-Forwarded-Proto and
+	// X-Forwarded-Host (or Host), so a shared cache MUST key cached entries
+	// by those headers or it will hand a response generated for one tenant
+	// to another. RFC 9111 §4.1 makes this explicit when Cache-Control is
+	// public.
+	//
+	// Note on X-Request-ID: spec Section 10.1.3 requires the PDP to echo
+	// the client's X-Request-ID, but adding it to Vary would create a
+	// distinct cache entry per unique ID and effectively disable shared
+	// caching. For an idempotent, low-frequency discovery endpoint that
+	// trade-off isn't worth taking; a cached response will carry the
+	// originating request's ID. Callers that depend on per-request IDs on
+	// the metadata endpoint can disable shared caching at the proxy layer.
+	metadataVary = "X-Forwarded-Proto, X-Forwarded-Host"
 )
 
 // searchKind identifies which AuthZEN Search API a request targets (Section 8).
@@ -807,6 +823,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", metadataCacheControl)
+	w.Header().Set("Vary", metadataVary)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		p.logger.Error("AuthZEN well-known: failed to encode response: %v", err)
 	}
