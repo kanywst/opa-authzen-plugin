@@ -51,7 +51,8 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 7 | Access Evaluations API (`POST /access/v1/evaluations`) | ✅ Supported |
 | Section 7.1.1 | Default value merging for batch evaluations | ✅ Supported |
 | Section 7.1.2.1 | Evaluation semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`) | ✅ Supported |
-| Section 8 | Search APIs (Subject, Resource, Action) | ❌ Not yet |
+| Section 8 | Search APIs (Subject, Resource, Action) | ✅ Supported (opt-in via `search` config) |
+| Section 8.5 | Search pagination (stateless opaque token) | ✅ Supported |
 | Section 9 | PDP Metadata (`GET /.well-known/authzen-configuration`) | ✅ Supported |
 | Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
@@ -219,10 +220,16 @@ make docker-run
 
 The plugin is configured under the `plugins.authzen` key in the OPA config file:
 
-| Key        | Type   | Default   | Description                                                     |
-| ---------- | ------ | --------- | --------------------------------------------------------------- |
-| `path`     | string | `authzen` | OPA package path to query                                       |
-| `decision` | string | `allow`   | Rule name within the package that produces the boolean decision |
+| Key                 | Type   | Default   | Description                                                              |
+| ------------------- | ------ | --------- | ------------------------------------------------------------------------ |
+| `path`              | string | `authzen` | OPA package path to query                                                |
+| `decision`          | string | `allow`   | Rule name within the package that produces the boolean decision          |
+| `search.subject`    | string | _(unset)_ | Rule name returning the set of permitted subjects (enables Subject Search)  |
+| `search.resource`   | string | _(unset)_ | Rule name returning the set of permitted resources (enables Resource Search) |
+| `search.action`     | string | _(unset)_ | Rule name returning the set of permitted actions (enables Action Search)    |
+| `search.max_limit`  | int    | `1000`    | Per-page cap; client `page.limit` is clamped to this value               |
+
+If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
 
 ## API Reference
 
@@ -244,6 +251,39 @@ Response: `{"decision": true}`
 ### `POST /access/v1/evaluations`
 
 Batch access evaluations with default value merging and evaluation semantics. See [example/](./example/) for detailed usage.
+
+### `POST /access/v1/search/subject`
+
+Subject Search (spec Section 8.1). Requires `search.subject` to be configured. Request body:
+
+```json
+{
+  "subject":  {"type": "user"},
+  "action":   {"name": "can_read"},
+  "resource": {"type": "account", "id": "123"},
+  "page":     {"limit": 100}
+}
+```
+
+Response:
+
+```json
+{
+  "page": {"next_token": "", "count": 2, "total": 2},
+  "results": [
+    {"type": "user", "id": "alice@example.com"},
+    {"type": "user", "id": "bob@example.com"}
+  ]
+}
+```
+
+### `POST /access/v1/search/resource`
+
+Resource Search (spec Section 8.2). Requires `search.resource`. Same response shape as Subject Search; `results` are resource entities.
+
+### `POST /access/v1/search/action`
+
+Action Search (spec Section 8.3). Requires `search.action`. Request omits the `action` key. `results` are action entities of shape `{"name": "..."}`.
 
 ### `GET /.well-known/authzen-configuration`
 
