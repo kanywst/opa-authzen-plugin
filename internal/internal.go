@@ -38,6 +38,13 @@ const (
 	// defaultSearchMaxLimit caps the per-page result size for Search APIs
 	// (Section 8.5) when the operator does not override it via config.
 	defaultSearchMaxLimit = 1000
+
+	// metadataCacheControl is the Cache-Control directive returned with the
+	// PDP metadata document. Section 11.9 ("Metadata Caching") recommends
+	// using Cache-Control with a max-age so PEPs can cache the discovery
+	// response. 1 hour is short enough that operators can roll changes
+	// without intervention but long enough to offload re-discovery traffic.
+	metadataCacheControl = "public, max-age=3600"
 )
 
 // searchKind identifies which AuthZEN Search API a request targets (Section 8).
@@ -799,6 +806,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", metadataCacheControl)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		p.logger.Error("AuthZEN well-known: failed to encode response: %v", err)
 	}
