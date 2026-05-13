@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Reject requests where `subject.properties`, `resource.properties`, or `action.properties` is present but not a JSON object (spec Section 5: properties is OPTIONAL and MUST be an object). JSON null is still accepted and silently dropped.
+- Search responses now reject policy results that mix entity kinds. Section 8.4 requires `results` to contain only entities of the searched-for type, so the plugin verifies each entity has a string `type` (Subject/Resource Search) or `name` (Action Search) and returns 500 on a mismatched policy result.
 
 ---
 

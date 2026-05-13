@@ -2484,6 +2484,59 @@ func TestSearch_EmptyResults(t *testing.T) {
 	}
 }
 
+// TestSearch_RejectsMistypedSubjectResults verifies Section 8.4:
+// `results` MUST contain only entities of the type being searched for.
+// A Subject Search rule that returns objects without a `type` field is a
+// policy authoring error and surfaces as 500.
+func TestSearch_RejectsMistypedSubjectResults(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		# action-shaped entity (only "name") returned from subject_search.
+		subject_search contains {"name": "wrong_kind"} if true
+	`)
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestSearch_RejectsMistypedResourceResults: see above, for resources.
+func TestSearch_RejectsMistypedResourceResults(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		resource_search contains {"name": "wrong_kind"} if true
+	`)
+	w := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account"}
+	}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestSearch_RejectsMistypedActionResults: Action Search results MUST
+// expose a string `name` field.
+func TestSearch_RejectsMistypedActionResults(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		# subject-shaped entity (type+id) returned from action_search.
+		action_search contains {"type": "user", "id": "wrong_kind"} if true
+	`)
+	w := doSearch(t, p, "/access/v1/search/action", `{
+		"subject": {"type": "user", "id": "alice"},
+		"resource": {"type": "account", "id": "100"}
+	}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestWellKnown_NoSearchEndpointsByDefault(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
