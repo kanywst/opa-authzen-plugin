@@ -826,8 +826,11 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		return
 	}
 
-	// Bind subsequent pages to the original request (Section 8.5).
-	reqHash := searchRequestHash(req.Subject, req.Action, req.Resource, req.Context, limit)
+	// Bind subsequent pages to the normalized search input (Section 8.5).
+	// Using the post-buildSearchInput map ensures that fields the spec says
+	// MUST be ignored (e.g. subject.id on Subject Search) cannot break a
+	// follow-up page just because the client did or didn't echo them back.
+	reqHash := searchRequestHash(input, limit)
 	offset := 0
 	if req.Page != nil && req.Page.Token != "" {
 		tok, err := decodePageToken(req.Page.Token)
@@ -981,42 +984,20 @@ func searchEntityKey(entity map[string]any, kind searchKind) string {
 	return string(b)
 }
 
-// searchRequestHash binds a pagination token to the entity payload (and
-// limit) of its originating request. Section 8.5 requires the PDP to detect
-// when callers change parameters mid-pagination.
-func searchRequestHash(subject, action, resource, ctx json.RawMessage, limit int) string {
+// searchRequestHash binds a pagination token to the normalized search input
+// and effective page limit. Hashing the post-validation input (rather than
+// the raw request body) keeps the hash stable across spec-ignored fields
+// such as subject.id on Subject Search, while still detecting changes to
+// any field that affects the query semantics. Section 8.5 requires the PDP
+// to detect when callers change parameters mid-pagination.
+func searchRequestHash(input map[string]any, limit int) string {
 	h := sha256.New()
-	hashField(h, "subject", subject)
-	hashField(h, "action", action)
-	hashField(h, "resource", resource)
-	hashField(h, "context", ctx)
-	_, _ = fmt.Fprintf(h, "limit\x00%d\x00", limit)
+	// json.Marshal sorts map keys alphabetically, so equivalent inputs
+	// always produce the same byte sequence regardless of YAML/Rego order.
+	canon, _ := json.Marshal(input)
+	_, _ = h.Write(canon)
+	_, _ = fmt.Fprintf(h, "\x00limit\x00%d\x00", limit)
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-// hashField writes a delimited, canonicalised representation of a request
-// field into h. A nil or JSON-null value is represented as an empty section
-// so callers cannot tunnel data through differing-but-equivalent encodings.
-func hashField(h interface{ Write([]byte) (int, error) }, name string, raw json.RawMessage) {
-	_, _ = h.Write([]byte(name))
-	_, _ = h.Write([]byte{0})
-	if len(raw) == 0 || isJSONNull(raw) {
-		_, _ = h.Write([]byte{0})
-		return
-	}
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		_, _ = h.Write(raw)
-		_, _ = h.Write([]byte{0})
-		return
-	}
-	canon, err := json.Marshal(v)
-	if err != nil {
-		_, _ = h.Write(raw)
-	} else {
-		_, _ = h.Write(canon)
-	}
-	_, _ = h.Write([]byte{0})
 }
 
 // encodePageToken returns a URL-safe base64 representation of the page

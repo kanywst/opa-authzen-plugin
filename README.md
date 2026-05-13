@@ -231,6 +231,8 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
 
+The plugin paginates over the **entire** result set returned by the Rego rule, sorting by the entity's `type`+`id` (or `name` for actions) so page boundaries are stable across requests. If your search rules can return very large candidate sets (tens of thousands), prefer filtering inside Rego rather than relying on the plugin's per-page slicing — the rule still runs once per page request, so heavy candidate sets are paid for every call.
+
 ## API Reference
 
 ### `POST /access/v1/evaluation`

@@ -2275,6 +2275,42 @@ func TestSearch_PaginationTokenMismatch(t *testing.T) {
 	}
 }
 
+// TestSearch_PaginationIgnoresSpecIgnoredFields verifies that pagination
+// tokens are bound to the normalized search input, not the raw request
+// body. A Subject Search where the client echoes back `subject.id` on a
+// follow-up page must succeed because that field is spec-ignored
+// (Section 8.1) and does not affect the actual evaluation.
+func TestSearch_PaginationIgnoresSpecIgnoredFields(t *testing.T) {
+	p := testSearchPlugin(t, searchModule)
+
+	w := doSearch(t, p, "/access/v1/search/subject", `{
+		"subject": {"type": "user"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 2}
+	}`)
+	var first searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Page == nil || first.Page.NextToken == "" {
+		t.Fatal("expected token from first page")
+	}
+
+	// Same logical query, but with subject.id present this time. Per
+	// Section 8.1 the id is ignored, so pagination must continue.
+	body := fmt.Sprintf(`{
+		"subject": {"type": "user", "id": "ignored-by-spec"},
+		"action": {"name": "can_read"},
+		"resource": {"type": "account", "id": "100"},
+		"page": {"limit": 2, "token": %q}
+	}`, first.Page.NextToken)
+	w = doSearch(t, p, "/access/v1/search/subject", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 when only spec-ignored fields differ, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSearch_PaginationInvalidToken(t *testing.T) {
 	p := testSearchPlugin(t, searchModule)
 	w := doSearch(t, p, "/access/v1/search/subject", `{
