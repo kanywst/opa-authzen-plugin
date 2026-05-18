@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/golangci/golangci-lint v1.64.8
-	github.com/open-policy-agent/opa v1.16.1
+	github.com/open-policy-agent/opa v1.16.2
 )
 
 require (
