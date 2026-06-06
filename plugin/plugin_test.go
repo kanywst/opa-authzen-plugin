@@ -72,8 +72,10 @@ func TestValidateDefaults(t *testing.T) {
 func TestValidateCapabilities(t *testing.T) {
 	factory := Factory{}
 
-	t.Run("valid URNs are parsed and trimmed", func(t *testing.T) {
-		config := []byte(`{"capabilities": ["urn:openid:authzen:capability:access-request", "  urn:example:cap  "]}`)
+	t.Run("valid URNs are parsed, trimmed, and scheme-canonicalized", func(t *testing.T) {
+		// RFC 8141 §2: the "urn:" scheme is case-insensitive, so "URN:" is
+		// accepted and the prefix is canonicalized to lowercase.
+		config := []byte(`{"capabilities": ["urn:openid:authzen:capability:access-request", "  URN:example:cap  "]}`)
 		result, err := factory.Validate(nil, config)
 		if err != nil {
 			t.Fatalf("Validate should accept URN capabilities: %v", err)
