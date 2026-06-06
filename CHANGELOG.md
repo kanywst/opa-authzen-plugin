@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v0.4.0] - 2026-06-06
+
 ### Added
 
 - New `capabilities` config block: a list of PDP capability URNs advertised in the `capabilities` field of the PDP metadata document (`GET /.well-known/authzen-configuration`, spec Section 9.1.2). The AuthZEN core registers no capability URNs of its own, so values are operator-supplied; each entry must be a URN (start with `urn:`) and the field is omitted from the metadata when unset.
+
+### Dependencies
+
+- Bump `github.com/open-policy-agent/opa` from 1.16.1 to 1.17.0
 
 ---
 
@@ -178,7 +186,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.5...v0.3.0
 [v0.2.5]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.4...v0.2.5
 [v0.2.4]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.3...v0.2.4
