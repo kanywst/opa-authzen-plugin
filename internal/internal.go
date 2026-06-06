@@ -121,10 +121,13 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 		if trimmed == "" {
 			return nil, fmt.Errorf("capabilities[%d] must not be empty", i)
 		}
-		if !strings.HasPrefix(trimmed, "urn:") {
+		// RFC 8141 §2: the "urn:" scheme identifier is case-insensitive, so
+		// accept any case and canonicalize the prefix to lowercase. The
+		// remainder (NID/NSS) is left untouched.
+		if !strings.HasPrefix(strings.ToLower(trimmed), "urn:") {
 			return nil, fmt.Errorf("capabilities[%d] %q must be a URN (start with \"urn:\")", i, c)
 		}
-		cfg.Capabilities[i] = trimmed
+		cfg.Capabilities[i] = "urn:" + trimmed[4:]
 	}
 
 	return &cfg, nil
