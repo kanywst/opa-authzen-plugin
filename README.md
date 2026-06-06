@@ -4,7 +4,7 @@ An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN
 
 ## Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────┐
 │                  OPA Process (:8181)              │
 │                                                  │
@@ -183,7 +183,7 @@ that supports external authorization. The
 [`example/envoy-gateway/`](./example/envoy-gateway/) directory demonstrates
 this pattern with Envoy proxy:
 
-```
+```text
 Client → Envoy → ext-authz-bridge → opa-authzen-plugin (AuthZEN PDP)
                                           ↓
                                      OPA Rego policy
@@ -228,8 +228,11 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | `search.resource`   | string | _(unset)_ | Rule name returning the set of permitted resources (enables Resource Search) |
 | `search.action`     | string | _(unset)_ | Rule name returning the set of permitted actions (enables Action Search)    |
 | `search.max_limit`  | int    | `1000`    | Per-page cap; client `page.limit` is clamped to this value               |
+| `capabilities`      | array  | _(unset)_ | PDP capability URNs advertised in the `capabilities` field of the PDP metadata |
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
+
+The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. For example, a deployment that implements the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) on top of this plugin would advertise `urn:openid:authzen:capability:access-request`.
 
 The plugin paginates over the **entire** result set returned by the Rego rule, sorting by the entity's `type`+`id` (or `name` for actions) so page boundaries are stable across requests. If your search rules can return very large candidate sets (tens of thousands), prefer filtering inside Rego rather than relying on the plugin's per-page slicing — the rule still runs once per page request, so heavy candidate sets are paid for every call.
 

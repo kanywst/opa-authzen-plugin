@@ -77,6 +77,12 @@ type Config struct {
 	Path     string       `json:"path"`
 	Decision string       `json:"decision"`
 	Search   SearchConfig `json:"search"`
+	// Capabilities lists the PDP capability URNs advertised in the
+	// `capabilities` array of the PDP metadata document (Section 9.1.2). The
+	// AuthZEN core specification registers no capability URNs of its own — the
+	// registry is populated by profiles and vendors — so this is operator-
+	// supplied and omitted from the metadata when empty.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // SearchConfig configures the optional Search APIs (Section 8 of the AuthZEN
@@ -105,6 +111,20 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 
 	if cfg.Search.MaxLimit < 0 {
 		return nil, fmt.Errorf("search.max_limit must be non-negative")
+	}
+
+	// Capability values are advertised verbatim in the metadata document, so
+	// reject malformed entries at startup rather than emitting bad metadata.
+	// Section 9.1.2 specifies these as registered IANA URNs.
+	for i, c := range cfg.Capabilities {
+		trimmed := strings.TrimSpace(c)
+		if trimmed == "" {
+			return nil, fmt.Errorf("capabilities[%d] must not be empty", i)
+		}
+		if !strings.HasPrefix(trimmed, "urn:") {
+			return nil, fmt.Errorf("capabilities[%d] %q must be a URN (start with \"urn:\")", i, c)
+		}
+		cfg.Capabilities[i] = trimmed
 	}
 
 	return &cfg, nil
@@ -810,6 +830,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	// unconfigured. Absence is the PEP's signal that the PDP is not capable.
 	p.mu.RLock()
 	search := p.cfg.Search
+	capabilities := p.cfg.Capabilities
 	p.mu.RUnlock()
 	if search.Subject != "" {
 		metadata.SearchSubjectEndpoint = base + "/access/v1/search/subject"
@@ -820,6 +841,10 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	if search.Action != "" {
 		metadata.SearchActionEndpoint = base + "/access/v1/search/action"
 	}
+
+	// Section 9.1.2: advertise operator-configured capability URNs. The
+	// `capabilities` field is omitempty, so an empty list is omitted entirely.
+	metadata.Capabilities = capabilities
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", metadataCacheControl)

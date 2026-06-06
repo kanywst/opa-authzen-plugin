@@ -11,3 +11,8 @@ plugins:
       resource: "resource_search"
       action: "action_search"
       # max_limit: 1000  # per-page cap; defaults to 1000 when unset
+    # Optional: PDP capability URNs advertised in the `capabilities` field of
+    # the PDP metadata document (spec Section 9.1.2). The core spec registers no
+    # URNs of its own, so these are operator-supplied and must start with "urn:".
+    # capabilities:
+    #   - "urn:openid:authzen:capability:access-request"

@@ -1409,6 +1409,33 @@ func TestWellKnownOmitsEmptyCapabilities(t *testing.T) {
 	}
 }
 
+func TestWellKnownAdvertisesCapabilities(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+	p.cfg.Capabilities = []string{
+		"urn:openid:authzen:capability:access-request",
+		"urn:example:authzen:capability:custom",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.Capabilities) != 2 ||
+		metadata.Capabilities[0] != "urn:openid:authzen:capability:access-request" ||
+		metadata.Capabilities[1] != "urn:example:authzen:capability:custom" {
+		t.Fatalf("unexpected capabilities: %v", metadata.Capabilities)
+	}
+}
+
 func TestWellKnownEchoesXRequestID(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 
