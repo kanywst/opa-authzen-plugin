@@ -69,6 +69,42 @@ func TestValidateDefaults(t *testing.T) {
 	}
 }
 
+func TestValidateCapabilities(t *testing.T) {
+	factory := Factory{}
+
+	t.Run("valid URNs are parsed and trimmed", func(t *testing.T) {
+		config := []byte(`{"capabilities": ["urn:openid:authzen:capability:access-request", "  urn:example:cap  "]}`)
+		result, err := factory.Validate(nil, config)
+		if err != nil {
+			t.Fatalf("Validate should accept URN capabilities: %v", err)
+		}
+		cfg := result.(*internal.Config)
+		want := []string{"urn:openid:authzen:capability:access-request", "urn:example:cap"}
+		if len(cfg.Capabilities) != len(want) {
+			t.Fatalf("got %d capabilities, want %d: %v", len(cfg.Capabilities), len(want), cfg.Capabilities)
+		}
+		for i := range want {
+			if cfg.Capabilities[i] != want[i] {
+				t.Errorf("capabilities[%d] = %q, want %q", i, cfg.Capabilities[i], want[i])
+			}
+		}
+	})
+
+	t.Run("empty entry is rejected", func(t *testing.T) {
+		config := []byte(`{"capabilities": ["urn:example:cap", "   "]}`)
+		if _, err := factory.Validate(nil, config); err == nil {
+			t.Error("Validate should reject an empty capability entry")
+		}
+	})
+
+	t.Run("non-URN entry is rejected", func(t *testing.T) {
+		config := []byte(`{"capabilities": ["access-request"]}`)
+		if _, err := factory.Validate(nil, config); err == nil {
+			t.Error("Validate should reject a capability that is not a URN")
+		}
+	})
+}
+
 func TestValidateInvalidJSON(t *testing.T) {
 	factory := Factory{}
 	config := []byte(`invalid json`)

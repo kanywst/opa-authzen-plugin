@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New `capabilities` config block: a list of PDP capability URNs advertised in the `capabilities` field of the PDP metadata document (`GET /.well-known/authzen-configuration`, spec Section 9.1.2). The AuthZEN core registers no capability URNs of its own, so values are operator-supplied; each entry must be a URN (start with `urn:`) and the field is omitted from the metadata when unset.
+
 ---
 
 ## [v0.3.0] - 2026-05-13
@@ -30,9 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.5] - 2026-04-28
 
 ### Added
+
 - `input` field included in evaluation Debug log for easier troubleshooting
 
 ### Changed
+
 - Increased usage of structured logging (`logger.WithFields`) in evaluation, batch evaluation, and reconfigure paths
 - Test helpers accept `testing.TB` so they can be shared between tests and benchmarks
 - `mergeField` uses the `isJSONNull` helper instead of raw string comparison for null checks
@@ -42,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.4] - 2026-04-18
 
 ### Added
+
 - Envoy Gateway integration example (`example/envoy-gateway/`)
   - ext-authz-bridge: translates Envoy gRPC ext_authz into AuthZEN evaluation requests
   - Docker Compose setup with Envoy, bridge, OPA, and backend services
@@ -51,10 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for JSON null `context` treated as absent (single and batch endpoints)
 
 ### Changed
+
 - Renamed `supported_capabilities` to `capabilities` in PDP metadata (aligns with Editor's Draft / IANA registry)
 - Version scheme documentation updated to reflect current semver usage
 
 ### Fixed
+
 - JSON null `context` no longer rejected as invalid (`context` is OPTIONAL per Section 6)
 - Required field null handling consistent between single and batch endpoints
 
@@ -63,16 +72,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.3] - 2026-04-16
 
 ### Added
+
 - Todo app example with RBAC + resource ownership based on AuthZEN Interop scenario
 - ABAC example with clearance levels, department matching, and context-based approval
 - X-Request-ID echo on well-known metadata endpoint (Section 10.1.3)
 - Tests for well-known X-Request-ID echo and empty `supported_capabilities` omission
 
 ### Fixed
+
 - Empty `supported_capabilities` now omitted from well-known response per Section 9.2.2 MUST
 - Removed unnecessary explicit initialization of `SupportedCapabilities` field
 
 ### Dependencies
+
 - Bump `github.com/open-policy-agent/opa` from 1.15.1 to 1.15.2
 - Bump `actions/checkout` from 4 to 6
 - Bump `actions/github-script` from 8 to 9
@@ -84,13 +96,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.2] - 2026-04-11
 
 ### Added
+
 - `supported_capabilities` field in well-known metadata response (Section 9, 12.3)
 - AuthZEN interop E2E test suite integration
 
 ### Changed
+
 - Well-known metadata response uses typed struct instead of untyped map
 
 ### Fixed
+
 - Explicit JSON `null` in batch evaluation fields now correctly falls back to top-level defaults (Section 7.1.1)
 
 ---
@@ -98,15 +113,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.1] - 2026-04-11
 
 ### Added
+
 - Request payload size limit (1 MB) and batch size limit (100 evaluations) (Section 11.7)
 - Race detector and golangci-lint in CI
 
 ### Changed
+
 - Batch size limit exceeded now returns 413 Request Entity Too Large
 - Improved error handling with HTTP status codes in per-evaluation error responses
 - golangci-lint v2 migration with updated configuration
 
 ### Fixed
+
 - errcheck lint errors in test code
 
 ---
@@ -114,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.2.0] - 2026-04-07
 
 ### Added
+
 - Batch evaluations endpoint (`POST /access/v1/evaluations`) with support for:
   - Default subject, action, resource, context fields (Section 7.1.1)
   - AuthZEN semantic options: `execute_all`, `deny_on_first_deny`, `permit_on_first_permit` (Section 7.1.2.1)
@@ -129,6 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - tools.go for golangci-lint and go-licenses
 
 ### Changed
+
 - Simplified go.mod with OPA as an explicit direct dependency
 - Release script auto-generates release notes
 
@@ -137,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.1.0] - 2026-04-05
 
 ### Added
+
 - Single evaluation endpoint (`POST /access/v1/evaluation`) per AuthZEN Section 6
 - Required field validation for subject, action, resource
 - Content-Type validation
@@ -150,6 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [v0.0.1] - 2026-04-02
 
 ### Added
+
 - Initial release
 - AuthZEN authorization plugin for OPA
 - Main entry point for OPA authzen plugin
