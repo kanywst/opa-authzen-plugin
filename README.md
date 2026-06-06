@@ -6,7 +6,7 @@ An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN
 
 ```text
 ┌──────────────────────────────────────────────────┐
-│                  OPA Process (:8181)              │
+│               OPA Process (:8181)                │
 │                                                  │
 │  ┌────────────────────────────────────────────┐  │
 │  │           OPA HTTP Server                  │  │
@@ -18,24 +18,24 @@ An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN
 │  │  │ GET /health  │  │ POST /access/v1/  │   │  │
 │  │  │ ...          │  │   evaluations     │   │  │
 │  │  └──────────────┘  │ GET /.well-known/ │   │  │
-│  │                    │   authzen-config.. │   │  │
+│  │                    │   authzen-config. │   │  │
 │  │                    └─────────┬─────────┘   │  │
 │  └──────────────────────────────┼─────────────┘  │
 │                                 │                │
 │  ┌──────────────────────────────▼─────────────┐  │
-│  │          AuthZEN Plugin (ExtraRoute)        │  │
-│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐  │  │
-│  │  │ Validate│  │ Evaluate │  │ Metadata │  │  │
-│  │  │ Request │─▶│  Policy  │  │ Endpoint │  │  │
-│  │  └─────────┘  └────┬─────┘  └──────────┘  │  │
+│  │        AuthZEN Plugin (ExtraRoute)         │  │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────┐   │  │
+│  │  │ Validate│  │ Evaluate │  │ Metadata │   │  │
+│  │  │ Request │─▶│  Policy  │  │ Endpoint │   │  │
+│  │  └─────────┘  └────┬─────┘  └──────────┘   │  │
 │  └─────────────────────┼──────────────────────┘  │
 │                        │                         │
 │  ┌─────────────────────▼──────────────────────┐  │
-│  │        OPA Rego Engine + Store              │  │
-│  │  ┌──────────┐  ┌───────────┐  ┌─────────┐ │  │
-│  │  │ Compiler │  │ In-Memory │  │ Bundles │ │  │
-│  │  │          │  │   Store   │  │         │ │  │
-│  │  └──────────┘  └───────────┘  └─────────┘ │  │
+│  │          OPA Rego Engine + Store           │  │
+│  │  ┌──────────┐  ┌───────────┐  ┌─────────┐  │  │
+│  │  │ Compiler │  │ In-Memory │  │ Bundles │  │  │
+│  │  │          │  │   Store   │  │         │  │  │
+│  │  └──────────┘  └───────────┘  └─────────┘  │  │
 │  └────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
