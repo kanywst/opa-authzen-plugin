@@ -585,16 +585,15 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 	defer p.manager.Store.Abort(r.Context(), txn)
 
-	decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
+	path, decisionRule, ctxRule := p.configSnapshot()
+
+	decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN evaluation error")
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
 
-	p.mu.RLock()
-	ctxRule := p.cfg.DecisionContext
-	p.mu.RUnlock()
 	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
@@ -615,19 +614,26 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// evalWithTxn evaluates a policy query with an optional existing transaction.
-func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction, input map[string]any) (bool, string, string, error) {
-	p.mu.RLock()
-	path := p.cfg.Path
-	decisionRule := p.cfg.Decision
-	p.mu.RUnlock()
-
-	val, err := p.evalRuleWithTxn(ctx, txn, input, path, decisionRule)
+// evalDecision evaluates the configured decision rule under the given package
+// path and returns the boolean decision. Path and rule are supplied by the
+// caller from a single config snapshot, so the decision and its context (see
+// evalDecisionContext) always run against the same configuration even if a
+// concurrent Reconfigure lands between the two evaluations.
+func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (bool, error) {
+	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule)
 	if err != nil {
-		return false, path, decisionRule, err
+		return false, err
 	}
 	decision, _ := val.(bool)
-	return decision, path, decisionRule, nil
+	return decision, nil
+}
+
+// configSnapshot reads the rule names that an evaluation request depends on
+// under a single lock acquisition, so a request observes one coherent config.
+func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.cfg.Path, p.cfg.Decision, p.cfg.DecisionContext
 }
 
 // evalDecisionContext evaluates the configured decision-context rule (if any)
@@ -748,15 +754,13 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 		defer p.manager.Store.Abort(r.Context(), txn)
 
-		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
+		path, decisionRule, ctxRule := p.configSnapshot()
+		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 		if err != nil {
 			p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
 			return
 		}
-		p.mu.RLock()
-		ctxRule := p.cfg.DecisionContext
-		p.mu.RUnlock()
 		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
@@ -798,9 +802,9 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 	}
 	defer p.manager.Store.Abort(r.Context(), txn)
 
-	p.mu.RLock()
-	ctxRule := p.cfg.DecisionContext
-	p.mu.RUnlock()
+	// Snapshot config once for the whole batch: one coherent (path, decision,
+	// context) tuple, and no per-iteration lock churn.
+	path, decisionRule, ctxRule := p.configSnapshot()
 
 	results := make([]evaluationResponse, 0, len(req.Evaluations))
 
@@ -829,7 +833,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			continue
 		}
 
-		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
+		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN batch evaluation error")
 			results = append(results, evalErrorResponse(500, "evaluation failed"))
