@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v0.5.0] - 2026-06-28
+
 ### Added
 
 - New `decision_context` config option: names a Rego rule whose object value is returned as the Decision's optional `context` member (spec Section 5.5.1), letting a policy convey reasons, obligations, or other metadata alongside the boolean decision. Applies to both `POST /access/v1/evaluation` and the per-evaluation results of `POST /access/v1/evaluations`. The decision and its context are evaluated under a single transaction so they observe the same policy/data snapshot. The rule must evaluate to a JSON object; an undefined result or empty object omits `context`, and a non-object result fails the request. Unset by default, preserving prior behavior.
+
+### Compatibility
+
+- Built against OPA v1.17.0.
 
 ---
 
