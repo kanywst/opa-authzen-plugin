@@ -2667,3 +2667,209 @@ func TestWellKnown_AdvertisesConfiguredSearchEndpoints(t *testing.T) {
 		t.Fatalf("expected action endpoint to be omitted, got %q", md.SearchActionEndpoint)
 	}
 }
+
+// --- Decision context (Section 5.5.1) -------------------------------------
+
+const decisionContextModule = `
+	package authzen
+	default allow = false
+	allow if input.subject.id == "alice"
+	reason := {"reason_admin": {"en": "matched id rule"}} if allow
+	reason := {"reason_admin": {"en": "no matching rule"}} if not allow
+`
+
+// testContextPlugin enables the decision-context rule named "reason".
+func testContextPlugin(tb testing.TB, module string) *AuthZenPlugin {
+	tb.Helper()
+	p := testPlugin(tb, module)
+	p.cfg.DecisionContext = "reason"
+	return p
+}
+
+func postEvaluation(p *AuthZenPlugin, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/access/v1/evaluation", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	p.handleEvaluation(w, req)
+	return w
+}
+
+const singleEvalBody = `{
+	"subject": {"type": "user", "id": "alice"},
+	"resource": {"type": "doc", "id": "1"},
+	"action": {"name": "read"}
+}`
+
+func TestEvaluationSurfacesDecisionContext(t *testing.T) {
+	p := testContextPlugin(t, decisionContextModule)
+
+	w := postEvaluation(p, singleEvalBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Decision {
+		t.Fatal("expected decision=true")
+	}
+	if resp.Context == nil {
+		t.Fatal("expected decision context to be present")
+	}
+	var ctx map[string]any
+	if err := json.Unmarshal(resp.Context, &ctx); err != nil {
+		t.Fatalf("context is not a JSON object: %v", err)
+	}
+	admin, ok := ctx["reason_admin"].(map[string]any)
+	if !ok || admin["en"] != "matched id rule" {
+		t.Fatalf("unexpected context: %s", resp.Context)
+	}
+}
+
+func TestEvaluationDefaultOmitsDecisionContext(t *testing.T) {
+	// No decision_context configured: behaves exactly as before (no context).
+	p := testPlugin(t, decisionContextModule)
+
+	w := postEvaluation(p, singleEvalBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "context") {
+		t.Fatalf("expected no context in response, got: %s", w.Body.String())
+	}
+}
+
+func TestEvaluationDecisionContextOmittedWhenUndefined(t *testing.T) {
+	// The rule is undefined for this input, so context must be omitted.
+	p := testContextPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+		reason := {"reason_admin": {"en": "only when bob"}} if input.subject.id == "bob"
+	`)
+
+	w := postEvaluation(p, singleEvalBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "context") {
+		t.Fatalf("expected no context, got: %s", w.Body.String())
+	}
+}
+
+func TestEvaluationDecisionContextOmittedWhenEmptyObject(t *testing.T) {
+	// An empty object conveys nothing, so it is omitted.
+	p := testContextPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+		reason := {} if true
+	`)
+
+	w := postEvaluation(p, singleEvalBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "context") {
+		t.Fatalf("expected no context, got: %s", w.Body.String())
+	}
+}
+
+func TestEvaluationDecisionContextNonObjectFails(t *testing.T) {
+	// Section 5.5.1 requires context to be an object; a non-object result is a
+	// policy-authoring error and must fail the request.
+	p := testContextPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+		reason := "not an object" if true
+	`)
+
+	w := postEvaluation(p, singleEvalBody)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for non-object context, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestEvaluationsBatchSurfacesDecisionContext(t *testing.T) {
+	p := testContextPlugin(t, decisionContextModule)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "execute_all"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "bob"}},
+			{"subject": {"type": "user", "id": "alice"}}
+		]
+	}`)
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(resp.Evaluations))
+	}
+	for i, e := range resp.Evaluations {
+		if e.Context == nil {
+			t.Fatalf("evaluation[%d]: expected decision context", i)
+		}
+	}
+	var denied map[string]any
+	if err := json.Unmarshal(resp.Evaluations[0].Context, &denied); err != nil {
+		t.Fatal(err)
+	}
+	admin := denied["reason_admin"].(map[string]any)
+	if admin["en"] != "no matching rule" {
+		t.Fatalf("evaluation[0]: unexpected context: %s", resp.Evaluations[0].Context)
+	}
+}
+
+func TestEvaluationsBatchDecisionContextErrorFailsClosed(t *testing.T) {
+	// A non-object context rule in a batch must fail that evaluation closed:
+	// decision=false with an error context, not a leaked 500 for the whole
+	// batch (which still returns 200).
+	p := testContextPlugin(t, `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+		reason := "not an object" if true
+	`)
+
+	w := postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"options": {"evaluations_semantic": "execute_all"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}}
+		]
+	}`)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("batch endpoint should return 200, got %d", w.Code)
+	}
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Evaluations))
+	}
+	if resp.Evaluations[0].Decision {
+		t.Fatal("expected fail-closed decision=false on context error")
+	}
+	if resp.Evaluations[0].Context == nil {
+		t.Fatal("expected an error context on the failed evaluation")
+	}
+}
+
+func TestEvaluationsBackwardCompatSurfacesDecisionContext(t *testing.T) {
+	// Single evaluation via the evaluations endpoint (no evaluations array).
+	p := testContextPlugin(t, decisionContextModule)
+
+	w := postEvaluations(p, singleEvalBody)
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Evaluations))
+	}
+	if resp.Evaluations[0].Context == nil {
+		t.Fatal("expected decision context in backward-compat response")
+	}
+}

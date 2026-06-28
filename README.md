@@ -224,6 +224,7 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | ------------------- | ------ | --------- | ------------------------------------------------------------------------ |
 | `path`              | string | `authzen` | OPA package path to query                                                |
 | `decision`          | string | `allow`   | Rule name within the package that produces the boolean decision          |
+| `decision_context`  | string | _(unset)_ | Rule name whose object value is returned as the Decision's optional `context` |
 | `search.subject`    | string | _(unset)_ | Rule name returning the set of permitted subjects (enables Subject Search)  |
 | `search.resource`   | string | _(unset)_ | Rule name returning the set of permitted resources (enables Resource Search) |
 | `search.action`     | string | _(unset)_ | Rule name returning the set of permitted actions (enables Action Search)    |
@@ -231,6 +232,8 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | `capabilities`      | array  | _(unset)_ | PDP capability URNs advertised in the `capabilities` field of the PDP metadata |
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
+
+When `decision_context` is set, the named rule is evaluated alongside the decision (under the same policy/data snapshot) and its result is returned as the Decision's optional `context` member (spec Section 5.5.1), letting a policy convey reasons, obligations, or other metadata. The rule must evaluate to a JSON object; an undefined result or an empty object omits `context`, and a non-object result fails the request. `decision_context` is unset by default, so responses carry only `decision` unless you opt in.
 
 The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. For example, a deployment that implements the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) on top of this plugin would advertise `urn:openid:authzen:capability:access-request`.
 

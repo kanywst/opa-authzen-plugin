@@ -74,9 +74,17 @@ const (
 
 // Config represents the plugin configuration.
 type Config struct {
-	Path     string       `json:"path"`
-	Decision string       `json:"decision"`
-	Search   SearchConfig `json:"search"`
+	Path     string `json:"path"`
+	Decision string `json:"decision"`
+	// DecisionContext names a Rego rule (within the package given by
+	// Config.Path) whose object value is returned as the OPTIONAL `context`
+	// member of the Decision (Section 5.5.1). It lets a policy convey reasons,
+	// obligations, or other metadata alongside the boolean decision. Leaving it
+	// empty (the default) omits decision context from responses, preserving
+	// prior behavior. The rule MUST evaluate to a JSON object; a non-object
+	// result is a policy-authoring error and fails the request.
+	DecisionContext string       `json:"decision_context,omitempty"`
+	Search          SearchConfig `json:"search"`
 	// Capabilities lists the PDP capability URNs advertised in the
 	// `capabilities` array of the PDP metadata document (Section 9.1.2). The
 	// AuthZEN core specification registers no capability URNs of its own — the
@@ -567,9 +575,26 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	decision, path, decisionRule, err := p.eval(r.Context(), input)
+	// Evaluate the decision and its optional context under a single
+	// transaction so both observe the same policy/data snapshot.
+	txn, err := p.manager.Store.NewTransaction(r.Context(), storage.TransactionParams{})
+	if err != nil {
+		p.logger.Error("AuthZEN evaluation: failed to create transaction: %v", err)
+		jsonError(w, "evaluation failed", http.StatusInternalServerError)
+		return
+	}
+	defer p.manager.Store.Abort(r.Context(), txn)
+
+	decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN evaluation error")
+		jsonError(w, "evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+	if err != nil {
+		p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
@@ -578,16 +603,13 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 
 	resp := evaluationResponse{
 		Decision: decision,
+		Context:  decisionCtx,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		p.logger.Error("AuthZEN evaluation: failed to encode response: %v", err)
 	}
-}
-
-func (p *AuthZenPlugin) eval(ctx context.Context, input map[string]any) (bool, string, string, error) {
-	return p.evalWithTxn(ctx, nil, input)
 }
 
 // evalWithTxn evaluates a policy query with an optional existing transaction.
@@ -603,6 +625,41 @@ func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction
 	}
 	decision, _ := val.(bool)
 	return decision, path, decisionRule, nil
+}
+
+// evalDecisionContext evaluates the configured decision-context rule (if any)
+// under the given transaction and returns its value as the OPTIONAL `context`
+// member of the Decision (Section 5.5.1). It returns a nil RawMessage — so the
+// `context` member is omitted — when no rule is configured, the rule is
+// undefined, or it yields JSON null or an empty object (nothing to convey).
+// The spec requires `context` to be an object, so a non-object result is
+// reported as an error. The transaction is shared with the decision evaluation
+// so both observe the same policy/data snapshot.
+func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any) (json.RawMessage, error) {
+	p.mu.RLock()
+	path := p.cfg.Path
+	rule := p.cfg.DecisionContext
+	p.mu.RUnlock()
+
+	if rule == "" {
+		return nil, nil
+	}
+
+	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule)
+	if err != nil {
+		return nil, err
+	}
+	if val == nil {
+		return nil, nil
+	}
+	obj, ok := val.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("decision_context rule %q must return an object; got %T", rule, val)
+	}
+	if len(obj) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(obj)
 }
 
 // evalRuleWithTxn evaluates an arbitrary rule under the configured package
@@ -683,14 +740,28 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			jsonError(w, errMsg, http.StatusBadRequest)
 			return
 		}
-		decision, path, decisionRule, err := p.eval(r.Context(), input)
+		txn, err := p.manager.Store.NewTransaction(r.Context(), storage.TransactionParams{})
+		if err != nil {
+			p.logger.Error("AuthZEN evaluation: failed to create transaction: %v", err)
+			jsonError(w, "evaluation failed", http.StatusInternalServerError)
+			return
+		}
+		defer p.manager.Store.Abort(r.Context(), txn)
+
+		decision, path, decisionRule, err := p.evalWithTxn(r.Context(), txn, input)
 		if err != nil {
 			p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
 			return
 		}
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+		if err != nil {
+			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
+			jsonError(w, "evaluation failed", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision}}}); err != nil {
+		if err := json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision, Context: decisionCtx}}}); err != nil {
 			p.logger.Error("AuthZEN evaluations: failed to encode response: %v", err)
 		}
 		return
@@ -779,7 +850,20 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			break
 		}
 
-		results = append(results, evaluationResponse{Decision: decision})
+		// Surface the optional policy-supplied decision context (Section
+		// 5.5.1) on non-short-circuit results. Short-circuit results above
+		// carry the plugin's own reason context instead.
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+		if err != nil {
+			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN batch decision context error")
+			results = append(results, evalErrorResponse(500, "evaluation failed"))
+			if semantic == semanticDenyOnFirstDeny {
+				break
+			}
+			continue
+		}
+
+		results = append(results, evaluationResponse{Decision: decision, Context: decisionCtx})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
