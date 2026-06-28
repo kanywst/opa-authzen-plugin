@@ -592,7 +592,10 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+	p.mu.RLock()
+	ctxRule := p.cfg.DecisionContext
+	p.mu.RUnlock()
+	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
@@ -634,13 +637,10 @@ func (p *AuthZenPlugin) evalWithTxn(ctx context.Context, txn storage.Transaction
 // undefined, or it yields JSON null or an empty object (nothing to convey).
 // The spec requires `context` to be an object, so a non-object result is
 // reported as an error. The transaction is shared with the decision evaluation
-// so both observe the same policy/data snapshot.
-func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any) (json.RawMessage, error) {
-	p.mu.RLock()
-	path := p.cfg.Path
-	rule := p.cfg.DecisionContext
-	p.mu.RUnlock()
-
+// so both observe the same policy/data snapshot. The caller passes the same
+// package path used for the decision so a concurrent Reconfigure cannot split
+// the decision and its context across two different packages.
+func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (json.RawMessage, error) {
 	if rule == "" {
 		return nil, nil
 	}
@@ -754,7 +754,10 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
 			return
 		}
-		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+		p.mu.RLock()
+		ctxRule := p.cfg.DecisionContext
+		p.mu.RUnlock()
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
@@ -794,6 +797,10 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer p.manager.Store.Abort(r.Context(), txn)
+
+	p.mu.RLock()
+	ctxRule := p.cfg.DecisionContext
+	p.mu.RUnlock()
 
 	results := make([]evaluationResponse, 0, len(req.Evaluations))
 
@@ -853,7 +860,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		// Surface the optional policy-supplied decision context (Section
 		// 5.5.1) on non-short-circuit results. Short-circuit results above
 		// carry the plugin's own reason context instead.
-		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input)
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN batch decision context error")
 			results = append(results, evalErrorResponse(500, "evaluation failed"))
