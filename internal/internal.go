@@ -53,13 +53,8 @@ const (
 	// to another. RFC 9111 §4.1 makes this explicit when Cache-Control is
 	// public.
 	//
-	// Note on X-Request-ID: spec Section 10.1.3 requires the PDP to echo
-	// the client's X-Request-ID, but adding it to Vary would create a
-	// distinct cache entry per unique ID and effectively disable shared
-	// caching. For an idempotent, low-frequency discovery endpoint that
-	// trade-off isn't worth taking; a cached response will carry the
-	// originating request's ID. Callers that depend on per-request IDs on
-	// the metadata endpoint can disable shared caching at the proxy layer.
+	// X-Request-ID is deliberately excluded: a cache entry per unique ID
+	// would disable shared caching on this idempotent endpoint.
 	metadataVary = "X-Forwarded-Proto, X-Forwarded-Host"
 )
 
@@ -323,20 +318,17 @@ func hasStringField(obj map[string]any, field string) bool {
 // normalizePropertiesField enforces that, when an entity's optional
 // `properties` member is present, it is a JSON object (Section 5 of the
 // AuthZEN spec defines `properties` as OPTIONAL with an object value).
-// JSON null is normalized away — it is deleted from obj in place so
-// downstream code sees the field as absent (Section 11.5 recommends
-// senders omit nulls; we accept and normalize them for forward
-// compatibility). Returns an empty string on success, or a validation
-// error message when `properties` is present but not an object. The
-// function mutates obj; callers pass it by reference deliberately.
+// JSON null is deleted from obj in place so downstream code sees the
+// field as absent (Section 11.5 recommends senders omit nulls; we accept
+// and normalize them for forward compatibility). Returns an empty string
+// on success, or a validation error message when `properties` is present
+// but not an object.
 func normalizePropertiesField(obj map[string]any, name string) string {
 	value, ok := obj["properties"]
 	if !ok {
 		return ""
 	}
 	if value == nil {
-		// JSON null. The spec recommends omitting nulls
-		// (Section 11.5) but accepting them is forward-compatible.
 		delete(obj, "properties")
 		return ""
 	}
@@ -615,10 +607,8 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 }
 
 // evalDecision evaluates the configured decision rule under the given package
-// path and returns the boolean decision. Path and rule are supplied by the
-// caller from a single config snapshot, so the decision and its context (see
-// evalDecisionContext) always run against the same configuration even if a
-// concurrent Reconfigure lands between the two evaluations.
+// path and returns the boolean decision. Path and rule come from a single
+// configSnapshot.
 func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (bool, error) {
 	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule)
 	if err != nil {
@@ -629,7 +619,8 @@ func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transactio
 }
 
 // configSnapshot reads the rule names that an evaluation request depends on
-// under a single lock acquisition, so a request observes one coherent config.
+// under a single lock acquisition, so a request observes one coherent config
+// even when a concurrent Reconfigure lands mid-request.
 func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -642,10 +633,8 @@ func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string
 // `context` member is omitted — when no rule is configured, the rule is
 // undefined, or it yields JSON null or an empty object (nothing to convey).
 // The spec requires `context` to be an object, so a non-object result is
-// reported as an error. The transaction is shared with the decision evaluation
-// so both observe the same policy/data snapshot. The caller passes the same
-// package path used for the decision so a concurrent Reconfigure cannot split
-// the decision and its context across two different packages.
+// reported as an error. Shares the caller's transaction and configSnapshot
+// with the decision evaluation.
 func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (json.RawMessage, error) {
 	if rule == "" {
 		return nil, nil
@@ -1161,12 +1150,9 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 }
 
 // validateSearchEntity enforces Section 8.3 ("results MUST contain only
-// entities of the type being searched for") together with the entity
-// shape requirements from Section 5 of the Information Model:
-//
-//   - Subject: REQUIRED `type` and `id`, both strings.
-//   - Resource: REQUIRED `type` and `id`, both strings.
-//   - Action: REQUIRED `name`, string. (Action has no `id`.)
+// entities of the type being searched for") together with the Section 5
+// entity shape: string `type` and `id` for Subject and Resource, string
+// `name` for Action.
 //
 // A policy that omits one of these fields would return an entity that the
 // PEP could not feed back into Access Evaluation (since `id`/`name` is
