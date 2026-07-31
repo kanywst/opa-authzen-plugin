@@ -36,7 +36,7 @@ const (
 	maxBatchSize = 100
 
 	// defaultSearchMaxLimit caps the per-page result size for Search APIs
-	// (Section 8.5) when the operator does not override it via config.
+	// (Section 8.2.1) when the operator does not override it via config.
 	defaultSearchMaxLimit = 1000
 
 	// metadataCacheControl is the Cache-Control directive returned with the
@@ -258,7 +258,7 @@ type pdpMetadata struct {
 	Capabilities              []string `json:"capabilities,omitempty"`
 }
 
-// AuthZEN Search API request (Section 8.1/8.2/8.3).
+// AuthZEN Search API request (Section 8.4.1/8.5.1/8.6.1).
 type searchRequest struct {
 	Subject  json.RawMessage `json:"subject,omitempty"`
 	Resource json.RawMessage `json:"resource,omitempty"`
@@ -267,21 +267,21 @@ type searchRequest struct {
 	Page     *pageRequest    `json:"page,omitempty"`
 }
 
-// pageRequest is the AuthZEN paginated request page object (Section 8.5.1).
+// pageRequest is the AuthZEN paginated request page object (Section 8.2.1).
 type pageRequest struct {
 	Token      string          `json:"token,omitempty"`
 	Limit      *int            `json:"limit,omitempty"`
 	Properties json.RawMessage `json:"properties,omitempty"`
 }
 
-// AuthZEN Search API response (Section 8.4).
+// AuthZEN Search API response (Section 8.3).
 type searchResponse struct {
 	Page    *pageResponse   `json:"page,omitempty"`
 	Context json.RawMessage `json:"context,omitempty"`
 	Results []any           `json:"results"`
 }
 
-// pageResponse is the AuthZEN paginated response page object (Section 8.5.2).
+// pageResponse is the AuthZEN paginated response page object (Section 8.2.2).
 type pageResponse struct {
 	NextToken string `json:"next_token"`
 	Count     *int   `json:"count,omitempty"`
@@ -290,7 +290,7 @@ type pageResponse struct {
 
 // pageToken is the decoded form of an opaque pagination token. The hash binds
 // a token to the request that produced it, so callers cannot mutate query
-// entities between pages (Section 8.5: PDP SHOULD return an error in that
+// entities between pages (Section 8.2: PDP SHOULD return an error in that
 // case).
 type pageToken struct {
 	Offset int    `json:"o"`
@@ -443,7 +443,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 		return nil, "subject.type is required and must be a string"
 	}
 	if kind == searchSubject {
-		// Spec Section 8.1: subject.id SHOULD be omitted, and if present MUST be ignored.
+		// Spec Section 8.4.1: subject.id SHOULD be omitted, and if present MUST be ignored.
 		delete(subjectVal, "id")
 	} else if !hasStringField(subjectVal, "id") {
 		return nil, "subject.id is required and must be a string"
@@ -470,7 +470,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 		}
 		input["action"] = actionVal
 	}
-	// Section 10.1.2 requires receivers to ignore unknown fields; a stray
+	// Section 10.1.1 requires receivers to ignore unknown fields; a stray
 	// "action" key in an Action Search request is silently discarded.
 
 	// Resource: required for Subject/Action Search (full), partial for Resource Search.
@@ -485,7 +485,7 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 		return nil, "resource.type is required and must be a string"
 	}
 	if kind == searchResource {
-		// Spec Section 8.2: resource.id SHOULD be omitted, and if present MUST be ignored.
+		// Spec Section 8.5.1: resource.id SHOULD be omitted, and if present MUST be ignored.
 		delete(resourceVal, "id")
 	} else if !hasStringField(resourceVal, "id") {
 		return nil, "resource.id is required and must be a string"
@@ -952,17 +952,17 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handleSubjectSearch serves POST /access/v1/search/subject (Section 8.1).
+// handleSubjectSearch serves POST /access/v1/search/subject (Section 8.4).
 func (p *AuthZenPlugin) handleSubjectSearch(w http.ResponseWriter, r *http.Request) {
 	p.handleSearch(w, r, searchSubject)
 }
 
-// handleResourceSearch serves POST /access/v1/search/resource (Section 8.2).
+// handleResourceSearch serves POST /access/v1/search/resource (Section 8.5).
 func (p *AuthZenPlugin) handleResourceSearch(w http.ResponseWriter, r *http.Request) {
 	p.handleSearch(w, r, searchResource)
 }
 
-// handleActionSearch serves POST /access/v1/search/action (Section 8.3).
+// handleActionSearch serves POST /access/v1/search/action (Section 8.6).
 func (p *AuthZenPlugin) handleActionSearch(w http.ResponseWriter, r *http.Request) {
 	p.handleSearch(w, r, searchAction)
 }
@@ -970,7 +970,7 @@ func (p *AuthZenPlugin) handleActionSearch(w http.ResponseWriter, r *http.Reques
 // handleSearch implements the shared lifecycle for all three Search APIs:
 // request validation (Section 8), single Rego evaluation, deterministic
 // ordering, and stateless pagination over the resulting entity list
-// (Section 8.5). The kind selects per-endpoint rules and the configured
+// (Section 8.2). The kind selects per-endpoint rules and the configured
 // target rule.
 func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kind searchKind) {
 	if reqID := r.Header.Get("X-Request-ID"); reqID != "" {
@@ -1018,7 +1018,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		return
 	}
 
-	// Bind subsequent pages to the normalized search input (Section 8.5).
+	// Bind subsequent pages to the normalized search input (Section 8.2).
 	// Using the post-buildSearchInput map ensures that fields the spec says
 	// MUST be ignored (e.g. subject.id on Subject Search) cannot break a
 	// follow-up page just because the client did or didn't echo them back.
@@ -1064,7 +1064,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 
 	resp := searchResponse{Results: page}
 	// next_token is REQUIRED whenever the response does not contain the
-	// entire result set (Section 8.5.2). Always emit a page object so
+	// entire result set (Section 8.2.2). Always emit a page object so
 	// pagination state is unambiguous.
 	nextToken := ""
 	if end < total {
@@ -1131,7 +1131,7 @@ func resolveSearchLimit(page *pageRequest, configMax int) (int, string) {
 // list of entity objects. The plugin accepts either an array or a set; each
 // element must itself be a JSON object so callers can rely on the AuthZEN
 // information model (Section 5). Each entity is further required to carry
-// the identifying field for the searched-for type (Section 8.4: results
+// the identifying field for the searched-for type (Section 8.3: results
 // MUST contain only entities of the type being searched for): `type` for
 // Subject/Resource Search and `name` for Action Search. Results are sorted
 // by a stable identifier key so pagination is deterministic.
@@ -1160,7 +1160,7 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 	return out, ""
 }
 
-// validateSearchEntity enforces Section 8.4 ("results MUST contain only
+// validateSearchEntity enforces Section 8.3 ("results MUST contain only
 // entities of the type being searched for") together with the entity
 // shape requirements from Section 5 of the Information Model:
 //
@@ -1214,7 +1214,7 @@ func searchEntityKey(entity map[string]any, kind searchKind) string {
 // and effective page limit. Hashing the post-validation input (rather than
 // the raw request body) keeps the hash stable across spec-ignored fields
 // such as subject.id on Subject Search, while still detecting changes to
-// any field that affects the query semantics. Section 8.5 requires the PDP
+// any field that affects the query semantics. Section 8.2 requires the PDP
 // to detect when callers change parameters mid-pagination.
 func searchRequestHash(input map[string]any, limit int) string {
 	h := sha256.New()
@@ -1227,7 +1227,7 @@ func searchRequestHash(input map[string]any, limit int) string {
 }
 
 // encodePageToken returns a URL-safe base64 representation of the page
-// token. The token is opaque to clients (Section 8.5).
+// token. The token is opaque to clients (Section 8.2).
 func encodePageToken(t pageToken) string {
 	b, _ := json.Marshal(t)
 	return base64.RawURLEncoding.EncodeToString(b)
