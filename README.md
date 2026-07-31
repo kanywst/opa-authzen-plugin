@@ -52,7 +52,7 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 7.1.1 | Default value merging for batch evaluations | ✅ Supported |
 | Section 7.1.2.1 | Evaluation semantics (`execute_all`, `deny_on_first_deny`, `permit_on_first_permit`) | ✅ Supported |
 | Section 8 | Search APIs (Subject, Resource, Action) | ✅ Supported (opt-in via `search` config) |
-| Section 8.5 | Search pagination (stateless opaque token) | ✅ Supported |
+| Section 8.2 | Search pagination (stateless opaque token) | ✅ Supported |
 | Section 9 | PDP Metadata (`GET /.well-known/authzen-configuration`) | ✅ Supported |
 | Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
@@ -262,7 +262,7 @@ Batch access evaluations with default value merging and evaluation semantics. Se
 
 ### `POST /access/v1/search/subject`
 
-Subject Search (spec Section 8.1). Requires `search.subject` to be configured. Request body:
+Subject Search (spec Section 8.4). Requires `search.subject` to be configured. Request body:
 
 ```json
 {
@@ -287,11 +287,11 @@ Response:
 
 ### `POST /access/v1/search/resource`
 
-Resource Search (spec Section 8.2). Requires `search.resource`. Same response shape as Subject Search; `results` are resource entities.
+Resource Search (spec Section 8.5). Requires `search.resource`. Same response shape as Subject Search; `results` are resource entities.
 
 ### `POST /access/v1/search/action`
 
-Action Search (spec Section 8.3). Requires `search.action`. Request omits the `action` key. `results` are action entities of shape `{"name": "..."}`.
+Action Search (spec Section 8.6). Requires `search.action`. Request omits the `action` key. `results` are action entities of shape `{"name": "..."}`.
 
 ### `GET /.well-known/authzen-configuration`
 

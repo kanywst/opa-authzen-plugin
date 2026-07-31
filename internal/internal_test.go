@@ -2288,8 +2288,8 @@ func TestActionSearch_OK(t *testing.T) {
 
 func TestActionSearch_IgnoresActionKey(t *testing.T) {
 	p := testSearchPlugin(t, searchModule)
-	// Spec Section 8.3 omits the "action" key, but unknown/extra fields
-	// MUST be ignored (Section 10.1.2).
+	// Spec Section 8.6.1 omits the "action" key, but unknown/extra fields
+	// MUST be ignored (Section 10.1.1).
 	w := doSearch(t, p, "/access/v1/search/action", `{
 		"subject": {"type": "user", "id": "alice"},
 		"resource": {"type": "account", "id": "100"},
@@ -2394,7 +2394,7 @@ func TestSearch_PaginationTokenMismatch(t *testing.T) {
 // tokens are bound to the normalized search input, not the raw request
 // body. A Subject Search where the client echoes back `subject.id` on a
 // follow-up page must succeed because that field is spec-ignored
-// (Section 8.1) and does not affect the actual evaluation.
+// (Section 8.4.1) and does not affect the actual evaluation.
 func TestSearch_PaginationIgnoresSpecIgnoredFields(t *testing.T) {
 	p := testSearchPlugin(t, searchModule)
 
@@ -2413,7 +2413,7 @@ func TestSearch_PaginationIgnoresSpecIgnoredFields(t *testing.T) {
 	}
 
 	// Same logical query, but with subject.id present this time. Per
-	// Section 8.1 the id is ignored, so pagination must continue.
+	// Section 8.4.1 the id is ignored, so pagination must continue.
 	body := fmt.Sprintf(`{
 		"subject": {"type": "user", "id": "ignored-by-spec"},
 		"action": {"name": "can_read"},
@@ -2536,7 +2536,7 @@ func TestSearch_EmptyResults(t *testing.T) {
 	}
 }
 
-// TestSearch_RejectsMistypedSubjectResults verifies Section 8.4:
+// TestSearch_RejectsMistypedSubjectResults verifies Section 8.3:
 // `results` MUST contain only entities of the type being searched for.
 // A Subject Search rule that returns objects without a `type` field is a
 // policy authoring error and surfaces as 500.
