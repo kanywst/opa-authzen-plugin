@@ -8,13 +8,7 @@ An OPA plugin (OPA-AuthZEN) that implements the [OpenID AuthZEN Authorization AP
 
 ## Prerequisites
 
-Go 1.26.1+. `tools.go` (build tag `tools`) records the tool dependencies so `go mod tidy` keeps them in `go.mod`.
-
-Note: `.golangci.yaml` is v2-format config and CI runs golangci-lint v2.9.0, but `go.mod` still pins `github.com/golangci/golangci-lint v1.64.8`. Install the linter directly rather than via `tools.go`:
-
-```bash
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
-```
+Go 1.26.1+, and nothing else to build or test. Lint and license tooling is pinned separately from `go.mod` — see the tool version variables at the top of the `Makefile`.
 
 ## Commands
 
@@ -48,10 +42,11 @@ Run benchmarks:
 go test -bench=. ./internal/
 ```
 
-Lint (golangci-lint v2, config in `.golangci.yaml`, same version CI runs):
+Lint (golangci-lint v2, config in `.golangci.yaml`). CI runs the same pinned version:
 
 ```bash
-golangci-lint run
+make lint        # golangci-lint run
+make licenses    # go-licenses check ./...
 ```
 
 ## Architecture
