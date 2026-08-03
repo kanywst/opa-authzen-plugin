@@ -8,7 +8,13 @@ An OPA plugin (OPA-AuthZEN) that implements the [OpenID AuthZEN Authorization AP
 
 ## Prerequisites
 
-Go 1.26.1+. Tool dependencies (golangci-lint, go-licenses) are managed via `tools.go` build tag.
+Go 1.26.1+. `tools.go` (build tag `tools`) records the tool dependencies so `go mod tidy` keeps them in `go.mod`.
+
+Note: `.golangci.yaml` is v2-format config and CI runs golangci-lint v2.9.0, but `go.mod` still pins `github.com/golangci/golangci-lint v1.64.8`. Install the linter directly rather than via `tools.go`:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
+```
 
 ## Commands
 
@@ -42,7 +48,7 @@ Run benchmarks:
 go test -bench=. ./internal/
 ```
 
-Lint (golangci-lint v2, config in `.golangci.yaml`):
+Lint (golangci-lint v2, config in `.golangci.yaml`, same version CI runs):
 
 ```bash
 golangci-lint run
@@ -78,9 +84,8 @@ Policy must be in `package <path>` and define a rule named `<decision>`.
 
 Release versions combine the OPA upstream version with a plugin-specific revision, computed by `build/get-opa-version.sh` and `build/get-plugin-rev.sh`. See `RELEASE.md` for the scheme.
 
-## Internal Directories
+## Directories
 
-- `_contexts/authzen/` — AuthZEN spec source (Editor's Draft). Reference when checking spec compliance.
-- `_roadmap/` — Donation roadmap to `open-policy-agent` org (gitignored, local only).
-- `_review/` — Design docs and spec review notes for PR context.
 - `example/` — Working examples including OPA config, policy files, and an Envoy Gateway integration with ext-authz bridge.
+
+Paths matching `_*` are gitignored local scratch space and are absent from a fresh checkout — nothing in the build, tests, or CI depends on them. If a local `_contexts/authzen/` exists it holds a copy of the AuthZEN spec source; otherwise read the spec from the URL above.
