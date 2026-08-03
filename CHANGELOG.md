@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.5.1] - 2026-08-03
+
+Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no non-comment changes since that release.
+
+### Changed
+
+- Removed `tools.go`. It pinned `github.com/golangci/golangci-lint v1.64.8` in the main `require` block of `go.mod` while doing nothing useful: `go-licenses` was never added to `go.mod`, and `golangci-lint/cmd/golangci-lint` is `package main` and therefore not importable, so building with the `tools` tag failed on both imports. Its only effect was to pull golangci-lint and its transitive dependencies into the module graph of every consumer importing `./plugin`. `go.mod` drops from 261 to 107 lines and `go.sum` from 727 to 275, leaving OPA as the sole direct dependency.
+- Lint and license tool versions are now pinned in the `Makefile` and run via `make lint` and `make licenses`. CI derives its golangci-lint version from the same variable, and the linter moves from v2.9.0 to v2.12.2.
+
+### Fixed
+
+- `build/get-opa-version.sh` read the OPA version from a fixed field position, which broke once OPA became the only direct dependency and `go mod tidy` collapsed the require block into a single-line directive. The version is now located by shape and reads correctly in both forms. Release artifacts were unaffected, since the tag workflow passes `VERSION` explicitly.
+
+### Compatibility
+
+- Built against OPA v1.17.0.
+
+---
+
 ## [v0.5.0] - 2026-06-28
 
 ### Added
@@ -198,7 +217,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.0...v0.5.1
+[v0.5.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.3.0...v0.4.0
 [v0.3.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.5...v0.3.0
 [v0.2.5]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.2.4...v0.2.5
