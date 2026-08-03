@@ -32,9 +32,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - id: tools
+        run: echo "golangci-lint=$(make -s print-golangci-lint-version)" >> "$GITHUB_OUTPUT"
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9.0
+          version: ${{ steps.tools.outputs.golangci-lint }}
 
   e2e:
     runs-on: ubuntu-latest

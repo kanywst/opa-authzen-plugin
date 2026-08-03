@@ -19,14 +19,13 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 2. **Run linting**
    ```bash
-   make fmt vet
-   golangci-lint run
+   make fmt vet lint
    ```
 
 3. **Check dependencies**
    ```bash
    go list -m all
-   go-licenses check ./...
+   make licenses
    ```
 
 4. **Update CHANGELOG.md**
