@@ -24,11 +24,18 @@ concurrency:
 jobs:
   review:
     # A pull request from a fork gets no secrets, so the job would fail on
-    # authentication rather than say anything useful. Drafts are skipped until
-    # they are marked ready, which is what the ready_for_review trigger is for.
+    # authentication rather than say anything useful. A run triggered by
+    # Dependabot is the same problem by another route: it reads the Dependabot
+    # secret store rather than the Actions one, so the token is empty there
+    # regardless of the branch living in this repository. The test is on the
+    # actor and not the pull request author, because a human reopening a
+    # Dependabot pull request does get the secrets and is worth reviewing.
+    # Drafts are skipped until they are marked ready, which is what the
+    # ready_for_review trigger is for.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.draft == false
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
