@@ -2,7 +2,8 @@ name: Claude review
 
 # CI answers "does it build and do the tests pass". This asks the question no
 # script here can. It reviews, it does not gate: nothing here is a required
-# check.
+# check, and a red run means the review did not happen, never that the code is
+# wrong — the findings are comments on the pull request.
 #
 # The action refuses to run when this file differs from the copy on the default
 # branch, so a pull request cannot rewrite its own reviewer. The cost is that
@@ -61,7 +62,21 @@ jobs:
             exit 1
           fi
 
+      # Snapshotted before the review so the check below can tell whether this
+      # run added anything, rather than seeing another bot's comment and
+      # concluding the review landed.
+      - name: Count comments before the review
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --jq 'length')
+          m=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" --jq 'length')
+          echo "count=$((n + m))" >> "$GITHUB_OUTPUT"
+
       - uses: anthropics/claude-code-action@9d7150bc8a3dae8149739a88019d192b579ad90c # v1
+        id: claude
         with:
           # A subscription token, not an API key: runs against the Claude plan
           # instead of API credits. Generate it with `claude setup-token`.
@@ -102,5 +117,48 @@ jobs:
             `file:line`. If the diff is clean against all of the above, say so
             in one line rather than manufacturing nits.
 
+          # `--allowedTools` adds to the base GitHub tools; Bash is not
+          # available unless a command is named here. The first version of this
+          # workflow allowed only the four gh calls, which is enough to read a
+          # diff and not enough to review one: every question above needs the
+          # file around the change, the history behind it, or the specification
+          # text. The specification is fetched rather than read from the tree,
+          # because the local copy under `_contexts/` is gitignored and so does
+          # not exist on a runner.
           claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Read,Grep,Glob,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),WebFetch(domain:openid.net),WebFetch(domain:openid.github.io),WebFetch(domain:raw.githubusercontent.com)"
+
+      # The action exits 0 whether or not the review reached the pull request,
+      # so a run that was denied every tool it needed still shows a green check
+      # against a pull request nobody read. Both failure modes are caught here:
+      # tool calls the allowlist refused, and a review that posted nothing.
+      - name: Require the review to land
+        if: always() && steps.claude.conclusion != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: |
+          denied=0
+          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            denied=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | first // 0' "$EXECUTION_FILE")
+          fi
+
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --jq 'length')
+          m=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" --jq 'length')
+          posted=$(( n + m - BEFORE ))
+
+          failed=0
+          if [ "$denied" -gt 0 ]; then
+            echo "::error::the reviewer was denied $denied tool call(s); widen --allowedTools above"
+            failed=1
+          fi
+          if [ "$posted" -le 0 ]; then
+            echo "::error::the reviewer posted nothing on #${PR}"
+            failed=1
+          fi
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
+          echo "review landed: $posted comment(s), no denied tool calls"
