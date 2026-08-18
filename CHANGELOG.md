@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New `supported_obligations` config option: opts the PDP into the [AuthZEN Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html). The configured Obligation Types are advertised as the `supported_obligations` member of the PDP metadata document (profile section "Discovery: PDP Metadata Extension"), and the PEP-declared `context.supported_obligations` array is filtered against that set before the input reaches Rego, satisfying the profile's requirement that a PDP ignore any declared value it did not itself advertise ("Negotiation: PEP-Declared Obligation Support"). Filtering applies to both evaluation endpoints and to Search, where it runs before the pagination hash so ignored values cannot invalidate a page token. Unset by default, in which case the metadata member is omitted and request context is passed through untouched, preserving prior behavior. The obligations themselves continue to travel through the existing `decision_context` rule.
+
 ---
 
 ## [v0.5.1] - 2026-08-03

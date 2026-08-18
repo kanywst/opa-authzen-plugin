@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -86,6 +87,21 @@ type Config struct {
 	// registry is populated by profiles and vendors — so this is operator-
 	// supplied and omitted from the metadata when empty.
 	Capabilities []string `json:"capabilities,omitempty"`
+	// SupportedObligations lists the Obligation Types this PDP may issue. It is
+	// advertised in the `supported_obligations` member of the PDP metadata
+	// document and bounds the PEP-declared set carried on each request (AuthZEN
+	// Obligations Profile 1.0, "Discovery: PDP Metadata Extension" and
+	// "Negotiation: PEP-Declared Obligation Support"). Each value is either an
+	// Obligation Type registered in the "AuthZEN Obligation Types" registry
+	// (`step-up`, `notification`, `session_termination`) or the literal
+	// `custom`.
+	//
+	// The obligations themselves travel in the Decision `context`, which the
+	// policy supplies through Config.DecisionContext; this field governs
+	// discovery and negotiation only. Leaving it empty means the PDP does not
+	// implement the profile: the metadata member is omitted and request context
+	// reaches the policy untouched.
+	SupportedObligations []string `json:"supported_obligations,omitempty"`
 }
 
 // SearchConfig configures the optional Search APIs (Section 8 of the AuthZEN
@@ -131,6 +147,18 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 			return nil, fmt.Errorf("capabilities[%d] %q must be a URN (start with \"urn:\")", i, c)
 		}
 		cfg.Capabilities[i] = "urn:" + trimmed[4:]
+	}
+
+	// Obligation Types are advertised verbatim and gate the negotiation filter,
+	// so reject malformed entries at startup. The registry the profile defines
+	// is IANA "Specification Required" and therefore extensible, so the value
+	// set is deliberately not restricted to the initial registrations.
+	for i, o := range cfg.SupportedObligations {
+		trimmed := strings.TrimSpace(o)
+		if trimmed == "" {
+			return nil, fmt.Errorf("supported_obligations[%d] must not be empty", i)
+		}
+		cfg.SupportedObligations[i] = trimmed
 	}
 
 	return &cfg, nil
@@ -251,6 +279,12 @@ type pdpMetadata struct {
 	SearchResourceEndpoint    string   `json:"search_resource_endpoint,omitempty"`
 	SearchActionEndpoint      string   `json:"search_action_endpoint,omitempty"`
 	Capabilities              []string `json:"capabilities,omitempty"`
+	// SupportedObligations is the metadata member added by the AuthZEN
+	// Obligations Profile 1.0 ("Discovery: PDP Metadata Extension"). A PDP that
+	// implements the profile MUST include it; one that supports no obligations
+	// MAY omit it entirely, and its absence is equivalent to an empty array —
+	// hence omitempty.
+	SupportedObligations []string `json:"supported_obligations,omitempty"`
 }
 
 // AuthZEN Search API request (Section 8.4.1/8.5.1/8.6.1).
@@ -498,6 +532,52 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 	return input, ""
 }
 
+// applyObligationNegotiation enforces the negotiation rule of the AuthZEN
+// Obligations Profile 1.0 ("Negotiation: PEP-Declared Obligation Support"):
+// every value in a request's `context.supported_obligations` MUST be drawn
+// from the set the PDP advertises in its own metadata, and the PDP MUST ignore
+// any value it did not advertise, treating the request as though that value
+// were absent.
+//
+// Filtering happens before the input reaches the policy, so a rule reading
+// input.context.supported_obligations can trust that every remaining entry is
+// an Obligation Type this PDP is configured to issue. A member that survives
+// as an empty array is preserved rather than deleted: a PEP that declared only
+// unsupported types has told the PDP something, which is not the same as the
+// "no information about PEP capability" the profile assigns to absence.
+// Elements that are not strings cannot name an advertised type and drop out
+// under the same rule, and a member that is not an array at all conveys no
+// capability, so it is removed entirely.
+//
+// The rule belongs to the profile, so it applies only once the operator opts
+// in by advertising a non-empty set. With the profile unconfigured the request
+// context passes through untouched.
+func applyObligationNegotiation(input map[string]any, advertised []string) {
+	if len(advertised) == 0 {
+		return
+	}
+	ctx, ok := input["context"].(map[string]any)
+	if !ok {
+		return
+	}
+	declared, present := ctx["supported_obligations"]
+	if !present {
+		return
+	}
+	list, ok := declared.([]any)
+	if !ok {
+		delete(ctx, "supported_obligations")
+		return
+	}
+	kept := make([]any, 0, len(list))
+	for _, v := range list {
+		if s, ok := v.(string); ok && slices.Contains(advertised, s) {
+			kept = append(kept, s)
+		}
+	}
+	ctx["supported_obligations"] = kept
+}
+
 // mergeField returns the override if present and non-null, otherwise the default (Section 7.1.1).
 // A JSON `null` value is treated as absent. If both are null, nil is returned
 // so that the required-field check catches the missing value.
@@ -577,7 +657,8 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 	defer p.manager.Store.Abort(r.Context(), txn)
 
-	path, decisionRule, ctxRule := p.configSnapshot()
+	path, decisionRule, ctxRule, obligations := p.configSnapshot()
+	applyObligationNegotiation(input, obligations)
 
 	decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 	if err != nil {
@@ -618,13 +699,13 @@ func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transactio
 	return decision, nil
 }
 
-// configSnapshot reads the rule names that an evaluation request depends on
+// configSnapshot reads the settings that an evaluation request depends on
 // under a single lock acquisition, so a request observes one coherent config
 // even when a concurrent Reconfigure lands mid-request.
-func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string) {
+func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string, obligations []string) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.cfg.Path, p.cfg.Decision, p.cfg.DecisionContext
+	return p.cfg.Path, p.cfg.Decision, p.cfg.DecisionContext, p.cfg.SupportedObligations
 }
 
 // evalDecisionContext evaluates the configured decision-context rule (if any)
@@ -743,7 +824,8 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 		defer p.manager.Store.Abort(r.Context(), txn)
 
-		path, decisionRule, ctxRule := p.configSnapshot()
+		path, decisionRule, ctxRule, obligations := p.configSnapshot()
+		applyObligationNegotiation(input, obligations)
 		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 		if err != nil {
 			p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
@@ -792,8 +874,8 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 	defer p.manager.Store.Abort(r.Context(), txn)
 
 	// Snapshot config once for the whole batch: one coherent (path, decision,
-	// context) tuple, and no per-iteration lock churn.
-	path, decisionRule, ctxRule := p.configSnapshot()
+	// context, obligations) tuple, and no per-iteration lock churn.
+	path, decisionRule, ctxRule, obligations := p.configSnapshot()
 
 	results := make([]evaluationResponse, 0, len(req.Evaluations))
 
@@ -821,6 +903,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			}
 			continue
 		}
+		applyObligationNegotiation(input, obligations)
 
 		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
 		if err != nil {
@@ -918,6 +1001,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	p.mu.RLock()
 	search := p.cfg.Search
 	capabilities := p.cfg.Capabilities
+	obligations := p.cfg.SupportedObligations
 	p.mu.RUnlock()
 	if search.Subject != "" {
 		metadata.SearchSubjectEndpoint = base + "/access/v1/search/subject"
@@ -932,6 +1016,11 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	// Section 9.1.2: advertise operator-configured capability URNs. The
 	// `capabilities` field is omitempty, so an empty list is omitted entirely.
 	metadata.Capabilities = capabilities
+
+	// Obligations Profile 1.0 ("Discovery: PDP Metadata Extension"): advertise
+	// the Obligation Types this PDP may issue. Omitted when unconfigured, which
+	// the profile defines as equivalent to an empty array.
+	metadata.SupportedObligations = obligations
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", metadataCacheControl)
@@ -970,6 +1059,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 	stopped := p.stopped
 	path := p.cfg.Path
 	search := p.cfg.Search
+	obligations := p.cfg.SupportedObligations
 	p.mu.RUnlock()
 	if stopped {
 		jsonError(w, "plugin is shutting down", http.StatusServiceUnavailable)
@@ -1000,6 +1090,9 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		jsonError(w, errMsg, http.StatusBadRequest)
 		return
 	}
+	// Applied before the pagination hash below, so that values the profile
+	// requires the PDP to ignore cannot break a follow-up page.
+	applyObligationNegotiation(input, obligations)
 
 	limit, errMsg := resolveSearchLimit(req.Page, search.MaxLimit)
 	if errMsg != "" {

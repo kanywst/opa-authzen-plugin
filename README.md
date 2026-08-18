@@ -57,6 +57,7 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
 | Section 11.7 | Request payload protection (body size limit, batch size limit) | ✅ Supported |
+| [Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html) | Obligation discovery and PEP-capability negotiation | ✅ Supported (opt-in via `supported_obligations`) |
 
 ## Issue Management
 
@@ -230,12 +231,45 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | `search.action`     | string | _(unset)_ | Rule name returning the set of permitted actions (enables Action Search)    |
 | `search.max_limit`  | int    | `1000`    | Per-page cap; client `page.limit` is clamped to this value               |
 | `capabilities`      | array  | _(unset)_ | PDP capability URNs advertised in the `capabilities` field of the PDP metadata |
+| `supported_obligations` | array | _(unset)_ | Obligation Types advertised in the PDP metadata; also bounds the PEP-declared set on each request |
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
 
 When `decision_context` is set, the named rule is evaluated alongside the decision (under the same policy/data snapshot) and its result is returned as the Decision's optional `context` member (spec Section 5.5.1), letting a policy convey reasons, obligations, or other metadata. The rule must evaluate to a JSON object; an undefined result or an empty object omits `context`, and a non-object result fails the request. `decision_context` is unset by default, so responses carry only `decision` unless you opt in.
 
 The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. For example, a deployment that implements the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) on top of this plugin would advertise `urn:openid:authzen:capability:access-request`.
+
+### Obligations Profile
+
+`supported_obligations` opts the PDP into the [AuthZEN Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html). Set it to the Obligation Types your policies may issue — a type registered in the "AuthZEN Obligation Types" registry (`step-up`, `notification`, `session_termination`) or the literal `custom`. The registry is IANA "Specification Required" and therefore extensible, so unregistered values are accepted; only empty entries are rejected at startup.
+
+The list does two things. It is advertised as the `supported_obligations` member of the PDP metadata, so a PEP can discover which types it must be prepared to execute. And it bounds the PEP's own `context.supported_obligations` array on each request: the profile requires a PDP to ignore any declared value it did not itself advertise, so the plugin filters the member before the input reaches Rego. Your policy can therefore read `input.context.supported_obligations` and trust every entry is a type this PDP is configured to issue. A member that survives filtering as an empty array is kept — a PEP declaring only unsupported types is telling you something, which the profile distinguishes from an absent member — while a member that is not an array at all is removed.
+
+The obligations themselves ride in the Decision `context`, which the `decision_context` rule supplies, so a policy issuing obligations sets both keys:
+
+```yaml
+plugins:
+  authzen:
+    decision_context: obligations_ctx
+    supported_obligations:
+      - step-up
+      - notification
+```
+
+```rego
+package authzen
+
+obligations_ctx := {"obligations": [{
+    "id": "step-up-1",
+    "type": "step-up",
+    "properties": {"acr_value": "urn:com:example:loa:3"}
+}]} if {
+    not allow
+    "step-up" in input.context.supported_obligations
+}
+```
+
+Leaving `supported_obligations` unset means the PDP does not implement the profile: the metadata member is omitted and request context reaches the policy untouched. If your policy already reads `input.context.supported_obligations` for its own purposes, note that opting in changes what it sees.
 
 The plugin paginates over the **entire** result set returned by the Rego rule, sorting by the entity's `type`+`id` (or `name` for actions) so page boundaries are stable across requests. If your search rules can return very large candidate sets (tens of thousands), prefer filtering inside Rego rather than relying on the plugin's per-page slicing — the rule still runs once per page request, so heavy candidate sets are paid for every call.
 
