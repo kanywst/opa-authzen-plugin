@@ -112,10 +112,14 @@ jobs:
             5. Dependency semantics. An OPA bump can change evaluation behaviour, so it
                deserves more scrutiny here than in an ordinary service.
 
-            Post findings as inline comments on the lines they concern. Use one
-            top-level comment for the summary. Be specific and cite
-            `file:line`. If the diff is clean against all of the above, say so
-            in one line rather than manufacturing nits.
+            Nobody reads your reply. The only output that reaches a human is what
+            you post to the pull request, so every run ends with a posted comment,
+            including a run that finds nothing.
+
+            Post findings as inline comments on the lines they concern, then close
+            with exactly one top-level `gh pr comment` carrying the summary. Be
+            specific and cite `file:line`. If the diff is clean against all of the
+            above, post that in one line rather than manufacturing nits.
 
           # `--allowedTools` adds to the base GitHub tools; Bash is not
           # available unless a command is named here. The first version of this
@@ -140,10 +144,15 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           BEFORE: ${{ steps.before.outputs.count }}
         run: |
-          denied=0
-          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
-            denied=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | first // 0' "$EXECUTION_FILE")
+          # No execution file means the action declined to run Claude at all,
+          # which is what happens on a pull request that edits this workflow.
+          # There is nothing to hold it to; say so and stop.
+          if [ -z "$EXECUTION_FILE" ] || [ ! -f "$EXECUTION_FILE" ]; then
+            echo "::notice::the reviewer did not run, so there is nothing to check; expected on a pull request that changes this workflow"
+            exit 0
           fi
+
+          denied=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | first // 0' "$EXECUTION_FILE")
 
           n=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --jq 'length')
           m=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/comments" --jq 'length')
