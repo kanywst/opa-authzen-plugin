@@ -2873,3 +2873,348 @@ func TestEvaluationsBackwardCompatSurfacesDecisionContext(t *testing.T) {
 		t.Fatal("expected decision context in backward-compat response")
 	}
 }
+
+// --- Obligations Profile 1.0 ----------------------------------------------
+
+// obligationEchoModule reflects the supported_obligations the policy actually
+// saw back through the Decision context, so tests can assert on the negotiated
+// set. The rule is undefined — and the response therefore carries no context —
+// when the member never reached the policy at all.
+const obligationEchoModule = `
+	package authzen
+	default allow = false
+	allow if input.subject.id == "alice"
+	echo := {"seen": input.context.supported_obligations}
+`
+
+// testObligationsPlugin advertises the given Obligation Types and echoes the
+// negotiated set through the decision-context rule "echo".
+func testObligationsPlugin(tb testing.TB, advertised ...string) *AuthZenPlugin {
+	tb.Helper()
+	p := testPlugin(tb, obligationEchoModule)
+	p.cfg.DecisionContext = "echo"
+	p.cfg.SupportedObligations = advertised
+	return p
+}
+
+// obligationBody builds a single-evaluation request whose context is the given
+// JSON object literal.
+func obligationBody(ctx string) string {
+	return fmt.Sprintf(`{
+		"subject": {"type": "user", "id": "alice"},
+		"resource": {"type": "doc", "id": "1"},
+		"action": {"name": "read"},
+		"context": %s
+	}`, ctx)
+}
+
+// seenObligations reads the echoed set out of a Decision context. The second
+// return value reports whether the member reached the policy at all, which is
+// what distinguishes a filtered-to-empty array from a removed member.
+func seenObligations(t *testing.T, raw json.RawMessage) ([]string, bool) {
+	t.Helper()
+	if raw == nil {
+		return nil, false
+	}
+	var ctx struct {
+		Seen *[]string `json:"seen"`
+	}
+	if err := json.Unmarshal(raw, &ctx); err != nil {
+		t.Fatalf("decision context has unexpected shape: %v (%s)", err, raw)
+	}
+	if ctx.Seen == nil {
+		return nil, false
+	}
+	return *ctx.Seen, true
+}
+
+func assertSeenObligations(t *testing.T, raw json.RawMessage, want []string) {
+	t.Helper()
+	got, ok := seenObligations(t, raw)
+	if !ok {
+		t.Fatalf("expected supported_obligations to reach the policy, got context %s", raw)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("policy saw %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("policy saw %v, want %v", got, want)
+		}
+	}
+}
+
+func TestEvaluationFiltersUnadvertisedObligations(t *testing.T) {
+	// Negotiation: a PDP MUST ignore any value in a request that it did not
+	// itself advertise, treating the request as though that value were absent.
+	p := testObligationsPlugin(t, "step-up", "notification")
+
+	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["notification", "session_termination", "step-up"]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	// Request order is preserved; only the unadvertised entry drops out.
+	assertSeenObligations(t, resp.Context, []string{"notification", "step-up"})
+}
+
+func TestEvaluationKeepsEmptyObligationSetWhenNothingMatches(t *testing.T) {
+	// A PEP that declared only unadvertised types has still told the PDP
+	// something, which the profile distinguishes from an absent member ("no
+	// information about PEP capability"), so the empty array is preserved.
+	p := testObligationsPlugin(t, "step-up")
+
+	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["session_termination"]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	assertSeenObligations(t, resp.Context, []string{})
+}
+
+func TestEvaluationDropsNonStringDeclaredObligations(t *testing.T) {
+	// Elements that are not strings cannot name an advertised Obligation Type,
+	// so they fall out under the same rule.
+	p := testObligationsPlugin(t, "step-up")
+
+	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["step-up", 42, null, {"type": "step-up"}]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	assertSeenObligations(t, resp.Context, []string{"step-up"})
+}
+
+func TestEvaluationRemovesNonArrayDeclaredObligations(t *testing.T) {
+	// A member that is not an array conveys no PEP capability, so it is removed
+	// entirely and the policy sees no member at all.
+	p := testObligationsPlugin(t, "step-up")
+
+	w := postEvaluation(p, obligationBody(`{"supported_obligations": "step-up", "keep": true}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := seenObligations(t, resp.Context); ok {
+		t.Fatalf("expected the malformed member to be removed, got context %s", resp.Context)
+	}
+}
+
+func TestEvaluationPassesContextThroughWhenProfileUnconfigured(t *testing.T) {
+	// With no advertised set the PDP does not implement the profile, so the
+	// request context reaches the policy exactly as sent.
+	p := testObligationsPlugin(t)
+
+	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["session_termination"]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	assertSeenObligations(t, resp.Context, []string{"session_termination"})
+}
+
+func TestEvaluationsBatchFiltersDeclaredObligations(t *testing.T) {
+	// The declared set arrives as a batch-level default (Section 7.1.1) and is
+	// filtered per evaluation, after merging.
+	p := testObligationsPlugin(t, "notification")
+
+	w := postEvaluations(p, `{
+		"subject": {"type": "user", "id": "alice"},
+		"resource": {"type": "doc", "id": "1"},
+		"action": {"name": "read"},
+		"context": {"supported_obligations": ["notification", "step-up"]},
+		"evaluations": [
+			{},
+			{"context": {"supported_obligations": ["step-up"]}}
+		]
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(resp.Evaluations))
+	}
+	assertSeenObligations(t, resp.Evaluations[0].Context, []string{"notification"})
+	assertSeenObligations(t, resp.Evaluations[1].Context, []string{})
+}
+
+func TestEvaluationsBackwardCompatFiltersDeclaredObligations(t *testing.T) {
+	// The evaluations endpoint without an evaluations array is its own handler
+	// branch with its own input build, so it needs its own guard.
+	p := testObligationsPlugin(t, "step-up")
+
+	w := postEvaluations(p, obligationBody(`{"supported_obligations": ["step-up", "session_termination"]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	resp := decodeBatchResp(t, w)
+	if len(resp.Evaluations) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(resp.Evaluations))
+	}
+	assertSeenObligations(t, resp.Evaluations[0].Context, []string{"step-up"})
+}
+
+// obligationSearchModule turns the negotiated set into search results, so the
+// filter is observable through the Search response.
+const obligationSearchModule = `
+	package authzen
+	resource_search contains {"type": "doc", "id": o} if {
+		some o in input.context.supported_obligations
+	}
+`
+
+func testObligationSearchPlugin(tb testing.TB, advertised ...string) *AuthZenPlugin {
+	tb.Helper()
+	p := testSearchPlugin(tb, obligationSearchModule)
+	p.cfg.SupportedObligations = advertised
+	return p
+}
+
+func searchResultIDs(t *testing.T, w *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var resp searchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode search response: %v\nbody: %s", err, w.Body.String())
+	}
+	ids := make([]string, 0, len(resp.Results))
+	for _, r := range resp.Results {
+		obj, _ := r.(map[string]any)
+		id, _ := obj["id"].(string)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func TestSearchFiltersDeclaredObligations(t *testing.T) {
+	p := testObligationSearchPlugin(t, "notification")
+
+	w := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc"},
+		"context": {"supported_obligations": ["notification", "session_termination"]}
+	}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	ids := searchResultIDs(t, w)
+	if len(ids) != 1 || ids[0] != "notification" {
+		t.Fatalf("expected only the advertised type to reach the policy, got %v", ids)
+	}
+}
+
+func TestSearchPageTokenIgnoresUnadvertisedObligations(t *testing.T) {
+	// The negotiation filter runs before the pagination hash, so values the PDP
+	// is required to ignore cannot invalidate a follow-up page token.
+	p := testObligationSearchPlugin(t, "notification", "session_termination", "step-up")
+
+	first := doSearch(t, p, "/access/v1/search/resource", `{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc"},
+		"context": {"supported_obligations": ["notification", "session_termination", "step-up", "custom"]},
+		"page": {"limit": 2}
+	}`)
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", first.Code, first.Body.String())
+	}
+	if ids := searchResultIDs(t, first); len(ids) != 2 || ids[0] != "notification" || ids[1] != "session_termination" {
+		t.Fatalf("unexpected first page: %v", ids)
+	}
+
+	var firstResp searchResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResp); err != nil {
+		t.Fatal(err)
+	}
+	if firstResp.Page == nil || firstResp.Page.NextToken == "" {
+		t.Fatalf("expected a next_token, got %+v", firstResp.Page)
+	}
+
+	// Second page declares a different unadvertised type. Both requests reduce
+	// to the same negotiated set, so the token must still match.
+	second := doSearch(t, p, "/access/v1/search/resource", fmt.Sprintf(`{
+		"subject": {"type": "user", "id": "alice"},
+		"action": {"name": "read"},
+		"resource": {"type": "doc"},
+		"context": {"supported_obligations": ["notification", "session_termination", "step-up", "urn:example:other"]},
+		"page": {"limit": 2, "token": %q}
+	}`, firstResp.Page.NextToken))
+	if second.Code != http.StatusOK {
+		t.Fatalf("expected 200 on the follow-up page, got %d: %s", second.Code, second.Body.String())
+	}
+	if ids := searchResultIDs(t, second); len(ids) != 1 || ids[0] != "step-up" {
+		t.Fatalf("unexpected second page: %v", ids)
+	}
+}
+
+func TestWellKnownOmitsUnsetSupportedObligations(t *testing.T) {
+	// A PDP that does not implement the profile MAY omit the member entirely.
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := raw["supported_obligations"]; exists {
+		t.Fatal("expected supported_obligations to be omitted when unconfigured")
+	}
+}
+
+func TestWellKnownAdvertisesSupportedObligations(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+	p.cfg.SupportedObligations = []string{"step-up", "notification", "custom"}
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"step-up", "notification", "custom"}
+	if len(metadata.SupportedObligations) != len(want) {
+		t.Fatalf("unexpected supported_obligations: %v", metadata.SupportedObligations)
+	}
+	for i := range want {
+		if metadata.SupportedObligations[i] != want[i] {
+			t.Fatalf("unexpected supported_obligations: %v", metadata.SupportedObligations)
+		}
+	}
+}

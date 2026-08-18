@@ -107,6 +107,47 @@ func TestValidateCapabilities(t *testing.T) {
 	})
 }
 
+func TestValidateSupportedObligations(t *testing.T) {
+	factory := Factory{}
+
+	t.Run("registered types and custom are parsed and trimmed", func(t *testing.T) {
+		// The "AuthZEN Obligation Types" registry is Specification Required and
+		// therefore extensible, so an unregistered value is accepted too.
+		config := []byte(`{"supported_obligations": ["step-up", "  notification  ", "custom", "urn:example:future"]}`)
+		result, err := factory.Validate(nil, config)
+		if err != nil {
+			t.Fatalf("Validate should accept obligation types: %v", err)
+		}
+		cfg := result.(*internal.Config)
+		want := []string{"step-up", "notification", "custom", "urn:example:future"}
+		if len(cfg.SupportedObligations) != len(want) {
+			t.Fatalf("got %d obligations, want %d: %v", len(cfg.SupportedObligations), len(want), cfg.SupportedObligations)
+		}
+		for i := range want {
+			if cfg.SupportedObligations[i] != want[i] {
+				t.Errorf("supported_obligations[%d] = %q, want %q", i, cfg.SupportedObligations[i], want[i])
+			}
+		}
+	})
+
+	t.Run("empty entry is rejected", func(t *testing.T) {
+		config := []byte(`{"supported_obligations": ["step-up", "   "]}`)
+		if _, err := factory.Validate(nil, config); err == nil {
+			t.Error("Validate should reject an empty obligation entry")
+		}
+	})
+
+	t.Run("unset leaves the profile disabled", func(t *testing.T) {
+		result, err := factory.Validate(nil, []byte(`{}`))
+		if err != nil {
+			t.Fatalf("Validate should handle a config without obligations: %v", err)
+		}
+		if got := result.(*internal.Config).SupportedObligations; len(got) != 0 {
+			t.Errorf("expected no advertised obligations by default, got %v", got)
+		}
+	})
+}
+
 func TestValidateInvalidJSON(t *testing.T) {
 	factory := Factory{}
 	config := []byte(`invalid json`)
