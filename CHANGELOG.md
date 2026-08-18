@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v0.6.0] - 2026-08-18
+
+First release to reach beyond the AuthZEN 1.0 core into a profile. The 1.0 normative requirements were already fully met and are unchanged.
+
 ### Added
 
 - New `supported_obligations` config option: opts the PDP into the [AuthZEN Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html). The configured Obligation Types are advertised as the `supported_obligations` member of the PDP metadata document (profile section "Discovery: PDP Metadata Extension"), and the PEP-declared `context.supported_obligations` array is filtered against that set before the input reaches Rego, satisfying the profile's requirement that a PDP ignore any declared value it did not itself advertise ("Negotiation: PEP-Declared Obligation Support"). Filtering applies to both evaluation endpoints and to Search, where it runs before the pagination hash so ignored values cannot invalidate a page token. Unset by default, in which case the metadata member is omitted and request context is passed through untouched, preserving prior behavior. The obligations themselves continue to travel through the existing `decision_context` rule.
+
+### Compatibility
+
+- Built against OPA v1.17.0.
+- No behavior change for a deployment that does not set `supported_obligations`: the metadata document is byte-identical and request context still reaches the policy untouched.
 
 ---
 
@@ -221,7 +232,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.3.0...v0.4.0
