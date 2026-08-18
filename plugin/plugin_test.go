@@ -111,8 +111,7 @@ func TestValidateSupportedObligations(t *testing.T) {
 	factory := Factory{}
 
 	t.Run("registered types and custom are parsed and trimmed", func(t *testing.T) {
-		// The "AuthZEN Obligation Types" registry is Specification Required and
-		// therefore extensible, so an unregistered value is accepted too.
+		// The registry is extensible, so an unregistered value is accepted too.
 		config := []byte(`{"supported_obligations": ["step-up", "  notification  ", "custom", "urn:example:future"]}`)
 		result, err := factory.Validate(nil, config)
 		if err != nil {

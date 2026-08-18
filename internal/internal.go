@@ -87,20 +87,11 @@ type Config struct {
 	// registry is populated by profiles and vendors — so this is operator-
 	// supplied and omitted from the metadata when empty.
 	Capabilities []string `json:"capabilities,omitempty"`
-	// SupportedObligations lists the Obligation Types this PDP may issue. It is
-	// advertised in the `supported_obligations` member of the PDP metadata
-	// document and bounds the PEP-declared set carried on each request (AuthZEN
-	// Obligations Profile 1.0, "Discovery: PDP Metadata Extension" and
-	// "Negotiation: PEP-Declared Obligation Support"). Each value is either an
-	// Obligation Type registered in the "AuthZEN Obligation Types" registry
-	// (`step-up`, `notification`, `session_termination`) or the literal
-	// `custom`.
-	//
-	// The obligations themselves travel in the Decision `context`, which the
-	// policy supplies through Config.DecisionContext; this field governs
-	// discovery and negotiation only. Leaving it empty means the PDP does not
-	// implement the profile: the metadata member is omitted and request context
-	// reaches the policy untouched.
+	// SupportedObligations opts into the AuthZEN Obligations Profile 1.0: the
+	// listed Obligation Types are advertised in the PDP metadata document and
+	// bound the PEP-declared set on each request. Empty means the profile is
+	// not implemented. Obligations themselves travel in the Decision context,
+	// via Config.DecisionContext.
 	SupportedObligations []string `json:"supported_obligations,omitempty"`
 }
 
@@ -149,10 +140,8 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 		cfg.Capabilities[i] = "urn:" + trimmed[4:]
 	}
 
-	// Obligation Types are advertised verbatim and gate the negotiation filter,
-	// so reject malformed entries at startup. The registry the profile defines
-	// is IANA "Specification Required" and therefore extensible, so the value
-	// set is deliberately not restricted to the initial registrations.
+	// The obligation registry is extensible, so values are not checked against
+	// the profile's initial registrations — only rejected when empty.
 	for i, o := range cfg.SupportedObligations {
 		trimmed := strings.TrimSpace(o)
 		if trimmed == "" {
@@ -279,11 +268,8 @@ type pdpMetadata struct {
 	SearchResourceEndpoint    string   `json:"search_resource_endpoint,omitempty"`
 	SearchActionEndpoint      string   `json:"search_action_endpoint,omitempty"`
 	Capabilities              []string `json:"capabilities,omitempty"`
-	// SupportedObligations is the metadata member added by the AuthZEN
-	// Obligations Profile 1.0 ("Discovery: PDP Metadata Extension"). A PDP that
-	// implements the profile MUST include it; one that supports no obligations
-	// MAY omit it entirely, and its absence is equivalent to an empty array —
-	// hence omitempty.
+	// Obligations Profile 1.0. Absence is equivalent to an empty array, so a
+	// PDP that supports none simply omits it.
 	SupportedObligations []string `json:"supported_obligations,omitempty"`
 }
 
@@ -532,26 +518,14 @@ func buildSearchInput(kind searchKind, subject, action, resource, ctx json.RawMe
 	return input, ""
 }
 
-// applyObligationNegotiation enforces the negotiation rule of the AuthZEN
-// Obligations Profile 1.0 ("Negotiation: PEP-Declared Obligation Support"):
-// every value in a request's `context.supported_obligations` MUST be drawn
-// from the set the PDP advertises in its own metadata, and the PDP MUST ignore
-// any value it did not advertise, treating the request as though that value
-// were absent.
-//
-// Filtering happens before the input reaches the policy, so a rule reading
-// input.context.supported_obligations can trust that every remaining entry is
-// an Obligation Type this PDP is configured to issue. A member that survives
-// as an empty array is preserved rather than deleted: a PEP that declared only
-// unsupported types has told the PDP something, which is not the same as the
-// "no information about PEP capability" the profile assigns to absence.
-// Elements that are not strings cannot name an advertised type and drop out
-// under the same rule, and a member that is not an array at all conveys no
-// capability, so it is removed entirely.
-//
-// The rule belongs to the profile, so it applies only once the operator opts
-// in by advertising a non-empty set. With the profile unconfigured the request
-// context passes through untouched.
+// applyObligationNegotiation implements the negotiation rule of the AuthZEN
+// Obligations Profile 1.0: a PDP MUST ignore any value in a request's
+// `context.supported_obligations` that it did not itself advertise. Only an
+// operator who opted in is bound by it, so an unconfigured PDP passes context
+// through untouched. An emptied array is kept rather than deleted — a PEP that
+// declared only unsupported types has said something, which the profile
+// distinguishes from the "no information" of an absent member — while a
+// non-array member conveys no capability at all.
 func applyObligationNegotiation(input map[string]any, advertised []string) {
 	if len(advertised) == 0 {
 		return
@@ -1017,9 +991,6 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	// `capabilities` field is omitempty, so an empty list is omitted entirely.
 	metadata.Capabilities = capabilities
 
-	// Obligations Profile 1.0 ("Discovery: PDP Metadata Extension"): advertise
-	// the Obligation Types this PDP may issue. Omitted when unconfigured, which
-	// the profile defines as equivalent to an empty array.
 	metadata.SupportedObligations = obligations
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1090,8 +1061,8 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		jsonError(w, errMsg, http.StatusBadRequest)
 		return
 	}
-	// Applied before the pagination hash below, so that values the profile
-	// requires the PDP to ignore cannot break a follow-up page.
+	// Before the pagination hash below, so values the PDP must ignore cannot
+	// break a follow-up page.
 	applyObligationNegotiation(input, obligations)
 
 	limit, errMsg := resolveSearchLimit(req.Page, search.MaxLimit)
