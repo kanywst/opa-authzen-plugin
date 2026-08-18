@@ -2876,10 +2876,9 @@ func TestEvaluationsBackwardCompatSurfacesDecisionContext(t *testing.T) {
 
 // --- Obligations Profile 1.0 ----------------------------------------------
 
-// obligationEchoModule reflects the supported_obligations the policy actually
-// saw back through the Decision context, so tests can assert on the negotiated
-// set. The rule is undefined — and the response therefore carries no context —
-// when the member never reached the policy at all.
+// obligationEchoModule reflects what the policy saw back through the Decision
+// context. The rule is undefined — so the response carries no context — when
+// the member never reached the policy.
 const obligationEchoModule = `
 	package authzen
 	default allow = false
@@ -2887,8 +2886,6 @@ const obligationEchoModule = `
 	echo := {"seen": input.context.supported_obligations}
 `
 
-// testObligationsPlugin advertises the given Obligation Types and echoes the
-// negotiated set through the decision-context rule "echo".
 func testObligationsPlugin(tb testing.TB, advertised ...string) *AuthZenPlugin {
 	tb.Helper()
 	p := testPlugin(tb, obligationEchoModule)
@@ -2897,8 +2894,6 @@ func testObligationsPlugin(tb testing.TB, advertised ...string) *AuthZenPlugin {
 	return p
 }
 
-// obligationBody builds a single-evaluation request whose context is the given
-// JSON object literal.
 func obligationBody(ctx string) string {
 	return fmt.Sprintf(`{
 		"subject": {"type": "user", "id": "alice"},
@@ -2908,9 +2903,8 @@ func obligationBody(ctx string) string {
 	}`, ctx)
 }
 
-// seenObligations reads the echoed set out of a Decision context. The second
-// return value reports whether the member reached the policy at all, which is
-// what distinguishes a filtered-to-empty array from a removed member.
+// seenObligations reads the echoed set out of a Decision context. The bool
+// distinguishes a filtered-to-empty array from a removed member.
 func seenObligations(t *testing.T, raw json.RawMessage) ([]string, bool) {
 	t.Helper()
 	if raw == nil {
@@ -2945,8 +2939,6 @@ func assertSeenObligations(t *testing.T, raw json.RawMessage, want []string) {
 }
 
 func TestEvaluationFiltersUnadvertisedObligations(t *testing.T) {
-	// Negotiation: a PDP MUST ignore any value in a request that it did not
-	// itself advertise, treating the request as though that value were absent.
 	p := testObligationsPlugin(t, "step-up", "notification")
 
 	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["notification", "session_termination", "step-up"]}`))
@@ -2963,9 +2955,6 @@ func TestEvaluationFiltersUnadvertisedObligations(t *testing.T) {
 }
 
 func TestEvaluationKeepsEmptyObligationSetWhenNothingMatches(t *testing.T) {
-	// A PEP that declared only unadvertised types has still told the PDP
-	// something, which the profile distinguishes from an absent member ("no
-	// information about PEP capability"), so the empty array is preserved.
 	p := testObligationsPlugin(t, "step-up")
 
 	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["session_termination"]}`))
@@ -2981,8 +2970,6 @@ func TestEvaluationKeepsEmptyObligationSetWhenNothingMatches(t *testing.T) {
 }
 
 func TestEvaluationDropsNonStringDeclaredObligations(t *testing.T) {
-	// Elements that are not strings cannot name an advertised Obligation Type,
-	// so they fall out under the same rule.
 	p := testObligationsPlugin(t, "step-up")
 
 	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["step-up", 42, null, {"type": "step-up"}]}`))
@@ -2998,8 +2985,6 @@ func TestEvaluationDropsNonStringDeclaredObligations(t *testing.T) {
 }
 
 func TestEvaluationRemovesNonArrayDeclaredObligations(t *testing.T) {
-	// A member that is not an array conveys no PEP capability, so it is removed
-	// entirely and the policy sees no member at all.
 	p := testObligationsPlugin(t, "step-up")
 
 	w := postEvaluation(p, obligationBody(`{"supported_obligations": "step-up", "keep": true}`))
@@ -3017,8 +3002,8 @@ func TestEvaluationRemovesNonArrayDeclaredObligations(t *testing.T) {
 }
 
 func TestEvaluationPassesContextThroughWhenProfileUnconfigured(t *testing.T) {
-	// With no advertised set the PDP does not implement the profile, so the
-	// request context reaches the policy exactly as sent.
+	// Nothing advertised: the PDP is not bound by the rule and sends the
+	// context on as-is.
 	p := testObligationsPlugin(t)
 
 	w := postEvaluation(p, obligationBody(`{"supported_obligations": ["session_termination"]}`))
@@ -3034,8 +3019,7 @@ func TestEvaluationPassesContextThroughWhenProfileUnconfigured(t *testing.T) {
 }
 
 func TestEvaluationsBatchFiltersDeclaredObligations(t *testing.T) {
-	// The declared set arrives as a batch-level default (Section 7.1.1) and is
-	// filtered per evaluation, after merging.
+	// Filtered per evaluation, after the Section 7.1.1 default merge.
 	p := testObligationsPlugin(t, "notification")
 
 	w := postEvaluations(p, `{
@@ -3061,8 +3045,7 @@ func TestEvaluationsBatchFiltersDeclaredObligations(t *testing.T) {
 }
 
 func TestEvaluationsBackwardCompatFiltersDeclaredObligations(t *testing.T) {
-	// The evaluations endpoint without an evaluations array is its own handler
-	// branch with its own input build, so it needs its own guard.
+	// No evaluations array: a separate branch with its own input build.
 	p := testObligationsPlugin(t, "step-up")
 
 	w := postEvaluations(p, obligationBody(`{"supported_obligations": ["step-up", "session_termination"]}`))
@@ -3077,8 +3060,8 @@ func TestEvaluationsBackwardCompatFiltersDeclaredObligations(t *testing.T) {
 	assertSeenObligations(t, resp.Evaluations[0].Context, []string{"step-up"})
 }
 
-// obligationSearchModule turns the negotiated set into search results, so the
-// filter is observable through the Search response.
+// obligationSearchModule turns the negotiated set into search results, making
+// the filter observable through the Search response.
 const obligationSearchModule = `
 	package authzen
 	resource_search contains {"type": "doc", "id": o} if {
@@ -3128,8 +3111,8 @@ func TestSearchFiltersDeclaredObligations(t *testing.T) {
 }
 
 func TestSearchPageTokenIgnoresUnadvertisedObligations(t *testing.T) {
-	// The negotiation filter runs before the pagination hash, so values the PDP
-	// is required to ignore cannot invalidate a follow-up page token.
+	// The filter runs before the pagination hash, so values the PDP must
+	// ignore cannot invalidate a follow-up token.
 	p := testObligationSearchPlugin(t, "notification", "session_termination", "step-up")
 
 	first := doSearch(t, p, "/access/v1/search/resource", `{
@@ -3154,8 +3137,8 @@ func TestSearchPageTokenIgnoresUnadvertisedObligations(t *testing.T) {
 		t.Fatalf("expected a next_token, got %+v", firstResp.Page)
 	}
 
-	// Second page declares a different unadvertised type. Both requests reduce
-	// to the same negotiated set, so the token must still match.
+	// A different unadvertised type on page 2 reduces to the same negotiated
+	// set, so the token must still match.
 	second := doSearch(t, p, "/access/v1/search/resource", fmt.Sprintf(`{
 		"subject": {"type": "user", "id": "alice"},
 		"action": {"name": "read"},
@@ -3172,7 +3155,6 @@ func TestSearchPageTokenIgnoresUnadvertisedObligations(t *testing.T) {
 }
 
 func TestWellKnownOmitsUnsetSupportedObligations(t *testing.T) {
-	// A PDP that does not implement the profile MAY omit the member entirely.
 	p := testPlugin(t, `package authzen`)
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
