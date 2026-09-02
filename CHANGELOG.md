@@ -15,7 +15,7 @@ Packaging and supply chain. The plugin itself is unchanged: `internal/` has no n
 
 ### Added
 
-- Release artifacts are now signed with [Sigstore](https://www.sigstore.dev/) keyless signing and carry a bill of materials. The container image gets a BuildKit-generated SPDX SBOM plus max-mode SLSA provenance, and its pushed digest is signed. Each GitHub Release gets an SPDX SBOM of the module (`opa_authzen_sbom.spdx.json`) and a signed `checksums.txt`, whose signature transitively covers every asset it lists. `RELEASE.md` documents the verification commands, with the signer identity pinned to this repository's tag workflows.
+- Release artifacts are now signed with [Sigstore](https://www.sigstore.dev/) keyless signing and carry a bill of materials. The container image gets a BuildKit-generated SPDX SBOM plus max-mode SLSA provenance, and its pushed digest is signed. Each GitHub Release gets an SPDX SBOM of the module (`opa_authzen_sbom.spdx.json`) and a `checksums.txt` signed into a Sigstore bundle (`checksums.txt.sigstore.json`), whose signature transitively covers every asset it lists. `RELEASE.md` documents the verification commands, with the signer identity pinned to this repository's tag workflows.
 
 ### Fixed
 

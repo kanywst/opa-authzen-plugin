@@ -55,12 +55,14 @@ jobs:
 
       # Only the checksum file is signed: verifying it verifies every asset it
       # lists, which keeps one signature valid for the whole release.
+      # cosign v4 defaults to the new bundle format, which carries the
+      # signature and the certificate in one file; --output-signature and
+      # --output-certificate are deprecated and ignored under it.
       - name: Sign the checksums
         working-directory: ./${{ env.RELEASE_DIR }}
         run: |
           cosign sign-blob --yes \
-            --output-signature checksums.txt.sig \
-            --output-certificate checksums.txt.pem \
+            --bundle checksums.txt.sigstore.json \
             checksums.txt
 
       - name: Create or update release
