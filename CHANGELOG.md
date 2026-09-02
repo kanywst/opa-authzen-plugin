@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.6.1] - 2026-09-02
+
+Packaging and supply chain. The plugin itself is unchanged: `internal/` has no non-comment changes since v0.6.0, and every AuthZEN endpoint behaves identically.
+
+### Added
+
+- Release artifacts are now signed with [Sigstore](https://www.sigstore.dev/) keyless signing and carry a bill of materials. The container image gets a BuildKit-generated SPDX SBOM plus max-mode SLSA provenance, and its pushed digest is signed. Each GitHub Release gets an SPDX SBOM of the module (`opa_authzen_sbom.spdx.json`) and a signed `checksums.txt`, whose signature transitively covers every asset it lists. `RELEASE.md` documents the verification commands, with the signer identity pinned to this repository's tag workflows.
+
+### Fixed
+
+- `make docker-run` published port 8181 to a listener that only accepted connections from inside the container, so every request from the host was refused. OPA has bound `localhost` by default since v1.0; the target now passes `--addr 0.0.0.0:8181`, and the README documents the same flag for anyone running the published image directly. The image `CMD` is unchanged, so host-network and sidecar deployments keep OPA's conservative default.
+
+### Changed
+
+- Runtime base image moved from `alpine:3.21` to `alpine:3.24`. 3.21 reaches end of support in November 2026 and stops receiving security patches then.
+
+### Dependencies
+
+- Bump `github.com/open-policy-agent/opa` from 1.17.0 to 1.20.0.
+
+### Compatibility
+
+- Built against OPA v1.20.0, up from v1.17.0 in v0.6.0. No configuration or policy change is required to upgrade.
+
+---
+
 ## [v0.6.0] - 2026-08-18
 
 First release to reach beyond the AuthZEN 1.0 core into a profile. The 1.0 normative requirements were already fully met and are unchanged.
@@ -232,7 +258,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...HEAD
+[v0.6.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.4.0...v0.5.0
