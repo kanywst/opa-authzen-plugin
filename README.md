@@ -1,5 +1,7 @@
 # opa-authzen-plugin
 
+[![CI](https://github.com/kanywst/opa-authzen-plugin/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/kanywst/opa-authzen-plugin/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/kanywst/opa-authzen-plugin?logo=github)](https://github.com/kanywst/opa-authzen-plugin/releases/latest) [![Go Reference](https://pkg.go.dev/badge/github.com/kanywst/opa-authzen-plugin.svg)](https://pkg.go.dev/github.com/kanywst/opa-authzen-plugin) [![Go Report Card](https://goreportcard.com/badge/github.com/kanywst/opa-authzen-plugin)](https://goreportcard.com/report/github.com/kanywst/opa-authzen-plugin) [![License](https://img.shields.io/github/license/kanywst/opa-authzen-plugin)](LICENSE)
+
 An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html) as a native OPA plugin.
 
 ## Architecture
