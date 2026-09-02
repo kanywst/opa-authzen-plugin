@@ -14,6 +14,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless signing exchanges this OIDC token for a short-lived Fulcio
+      # certificate, so the image needs no long-lived signing key.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -34,6 +37,7 @@ jobs:
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
           push: true
@@ -42,3 +46,16 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # BuildKit attaches an SPDX SBOM and full SLSA provenance to the
+          # published index, so consumers can see what went into the image.
+          sbom: true
+          provenance: mode=max
+
+      - uses: sigstore/cosign-installer@v4
+
+      # Signing the digest rather than a tag binds the signature to the exact
+      # index that was pushed; a later tag move cannot inherit it.
+      - name: Sign the published image
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}

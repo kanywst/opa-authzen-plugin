@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      # Keyless signing exchanges this OIDC token for a short-lived Fulcio
+      # certificate, so the release needs no long-lived signing key.
+      id-token: write
     steps:
       - name: Check out code
         uses: actions/checkout@v7
@@ -23,12 +26,42 @@ jobs:
           go-version-file: go.mod
 
       - name: Set TAG_NAME
-        run: echo "TAG_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+        run: |
+          tag="${GITHUB_REF##*/}"
+          {
+            echo "TAG_NAME=${tag}"
+            echo "RELEASE_DIR=_release/${tag#v}"
+          } >> "$GITHUB_ENV"
 
       - name: Build release binaries
-        run: make release VERSION=${TAG_NAME#v}
+        run: make release "VERSION=${TAG_NAME#v}"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: ./${{ env.RELEASE_DIR }}/opa_authzen_sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Checksum the release assets
+        working-directory: ./${{ env.RELEASE_DIR }}
+        run: sha256sum opa_authzen_* > checksums.txt
+
+      - uses: sigstore/cosign-installer@v4
+
+      # Only the checksum file is signed: verifying it verifies every asset it
+      # lists, which keeps one signature valid for the whole release.
+      - name: Sign the checksums
+        working-directory: ./${{ env.RELEASE_DIR }}
+        run: |
+          cosign sign-blob --yes \
+            --output-signature checksums.txt.sig \
+            --output-certificate checksums.txt.pem \
+            checksums.txt
 
       - name: Create or update release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./build/github-release.sh --asset-dir=./_release/${TAG_NAME#v}/ --tag=${TAG_NAME}
+        run: ./build/github-release.sh "--asset-dir=./${RELEASE_DIR}/" "--tag=${TAG_NAME}"

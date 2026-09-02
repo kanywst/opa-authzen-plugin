@@ -25,9 +25,11 @@ for i in "$@"; do
     esac
 done
 
+# Everything the release job leaves in the asset dir is a release asset: the
+# binaries, the SBOM, and the signed checksum file with its certificate.
 ASSETS=()
-for asset in "${ASSET_DIR}"/opa_authzen_*; do
-    [ -e "$asset" ] || continue
+for asset in "${ASSET_DIR}"/*; do
+    [ -f "$asset" ] || continue
     ASSETS+=("$asset")
 done
 
