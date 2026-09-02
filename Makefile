@@ -14,27 +14,18 @@ build:
 test:
 	$(GO) test -v ./...
 
-VERSION ?= $(shell ./build/get-opa-version.sh)$(shell ./build/get-plugin-rev.sh)
-RELEASE_DIR ?= _release/$(VERSION)
-
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
-
+# The release matrix, the asset names, the checksums, the SBOM and the
+# signature all live in .goreleaser.yaml. This target runs the same pipeline
+# locally in snapshot mode so a release can be inspected before it is tagged;
+# signing is skipped because keyless signing needs a CI OIDC token.
 .PHONY: release
 release:
-	@mkdir -p $(RELEASE_DIR)
-	@for platform in $(PLATFORMS); do \
-		os=$${platform%/*}; \
-		arch=$${platform#*/}; \
-		ext=""; \
-		if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
-		echo "Building $$os/$$arch..."; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -o $(RELEASE_DIR)/opa_authzen_$${os}_$${arch}$${ext} ./cmd/opa-authzen-plugin; \
-	done
+	$(GO) run github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION) release --snapshot --clean --skip=sign
 
 .PHONY: clean
 clean:
 	rm -f $(BIN)
-	rm -rf _release
+	rm -rf dist
 
 .PHONY: fmt
 fmt:
@@ -49,10 +40,15 @@ vet:
 # bloats the dependency graph of anyone importing ./plugin.
 GOLANGCI_LINT_VERSION ?= v2.12.2
 GO_LICENSES_VERSION ?= v1.6.0
+GORELEASER_VERSION ?= v2.18.0
 
 .PHONY: print-golangci-lint-version
 print-golangci-lint-version:
 	@echo $(GOLANGCI_LINT_VERSION)
+
+.PHONY: print-goreleaser-version
+print-goreleaser-version:
+	@echo $(GORELEASER_VERSION)
 
 .PHONY: lint
 lint:

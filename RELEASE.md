@@ -37,18 +37,26 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
    - Follow [Keep a Changelog](https://keepachangelog.com/) format
    - Include OPA version compatibility note
 
-5. **Create annotated git tag**
+5. **Dry-run the release locally (optional)**
+
+   Runs the same GoReleaser pipeline CI will run, into `dist/`, without publishing anything. Signing is skipped because keyless signing needs a CI OIDC token.
+
+   ```bash
+   make release
+   ```
+
+6. **Create annotated git tag**
 
    ```bash
    git tag -a vX.Y.Z -m "Release vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-6. **Let the tag workflows run**
+7. **Let the tag workflows run**
 
-   Pushing the tag triggers two workflows. `post-tag.yaml` cross-compiles the binaries, generates an SPDX SBOM, writes and signs `checksums.txt`, and opens a **draft** GitHub Release with all of it attached. `publish.yaml` builds and pushes the multi-arch image to `ghcr.io/kanywst/opa-authzen-plugin` with an SBOM and provenance attestation, then signs the pushed digest.
+   Pushing the tag triggers two workflows. `post-tag.yaml` runs GoReleaser, which cross-compiles the binaries, generates an SPDX SBOM, writes and signs `checksums.txt`, and opens a **draft** GitHub Release with all of it attached. `publish.yaml` builds and pushes the multi-arch image to `ghcr.io/kanywst/opa-authzen-plugin` with an SBOM and provenance attestation, then signs the pushed digest.
 
-7. **Publish the draft Release**
+8. **Publish the draft Release**
 
    - Confirm both workflows are green and every asset is attached
    - Copy the CHANGELOG entry into the release notes
@@ -117,8 +125,14 @@ git describe --tags --always --dirty
 
 ```bash
 make clean release
-# Check _release/ directory exists
-ls -la _release/
+# GoReleaser writes everything under dist/
+ls -la dist/
+```
+
+To check the configuration itself without building:
+
+```bash
+go run github.com/goreleaser/goreleaser/v2@$(make -s print-goreleaser-version) check
 ```
 
 ## Support & Maintenance

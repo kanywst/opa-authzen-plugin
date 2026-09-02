@@ -18,7 +18,7 @@ make test           # Run all tests (go test -v ./...)
 make fmt            # Format code
 make vet            # Vet code
 make clean          # Remove build artifacts
-make release        # Cross-compile for linux/darwin/windows (amd64+arm64)
+make release        # GoReleaser snapshot build into dist/ (no publish, no signing)
 make docker-build   # Build Docker image
 make docker-run     # Run in Docker with example config
 make test-interop   # E2E tests via opa-authzen-interop (clones external repo)
@@ -75,9 +75,11 @@ Policy must be in `package <path>` and define a rule named `<decision>`.
 - `json.RawMessage` is used for request fields to defer unmarshalling and support the default-merging pattern in batch evaluations.
 - All commits must include DCO sign-off (`git commit -s`).
 
-## Versioning
+## Releasing
 
-Release versions combine the OPA upstream version with a plugin-specific revision, computed by `build/get-opa-version.sh` and `build/get-plugin-rev.sh`. See `RELEASE.md` for the scheme.
+Releases are cut by pushing a `v*` tag. `post-tag.yaml` runs GoReleaser (`.goreleaser.yaml`), which cross-compiles the five platform binaries, generates an SPDX SBOM, and signs `checksums.txt` with keyless cosign into a Sigstore bundle, then opens a draft GitHub Release. `publish.yaml` separately builds and signs the multi-arch container image. `make release` runs the same GoReleaser pipeline locally in snapshot mode. See `RELEASE.md`.
+
+Tags are plain SemVer (`vX.Y.Z`). `build/get-opa-version.sh` and `build/get-plugin-rev.sh` compute the `<opa_version>-authzen-<N>` scheme that `RELEASE.md` commits to adopting if the project is donated to the `open-policy-agent` org; nothing uses them today.
 
 ## Directories
 

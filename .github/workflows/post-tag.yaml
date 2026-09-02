@@ -6,8 +6,8 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    name: Build and Release
+  release:
+    name: Release
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -18,6 +18,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
+          # goreleaser derives the version and changelog from tag history.
           fetch-depth: 0
 
       - name: Set up Go
@@ -25,47 +26,22 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Set TAG_NAME
-        run: |
-          tag="${GITHUB_REF##*/}"
-          {
-            echo "TAG_NAME=${tag}"
-            echo "RELEASE_DIR=_release/${tag#v}"
-          } >> "$GITHUB_ENV"
+      # goreleaser shells out to these two; neither is a Go package, so both
+      # are installed here rather than tracked in go.mod.
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
 
-      - name: Build release binaries
-        run: make release "VERSION=${TAG_NAME#v}"
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+      - name: Resolve tool versions
+        id: tools
+        run: echo "goreleaser=$(make -s print-goreleaser-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
         with:
-          path: .
-          format: spdx-json
-          output-file: ./${{ env.RELEASE_DIR }}/opa_authzen_sbom.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-
-      - name: Checksum the release assets
-        working-directory: ./${{ env.RELEASE_DIR }}
-        run: sha256sum opa_authzen_* > checksums.txt
-
-      # cosign-installer publishes no floating major tag, so this is pinned to
-      # an exact release and bumped by Dependabot.
-      - uses: sigstore/cosign-installer@v4.1.2
-
-      # Only the checksum file is signed: verifying it verifies every asset it
-      # lists, which keeps one signature valid for the whole release.
-      # cosign v4 defaults to the new bundle format, which carries the
-      # signature and the certificate in one file; --output-signature and
-      # --output-certificate are deprecated and ignored under it.
-      - name: Sign the checksums
-        working-directory: ./${{ env.RELEASE_DIR }}
-        run: |
-          cosign sign-blob --yes \
-            --bundle checksums.txt.sigstore.json \
-            checksums.txt
-
-      - name: Create or update release
+          version: ${{ steps.tools.outputs.goreleaser }}
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./build/github-release.sh "--asset-dir=./${RELEASE_DIR}/" "--tag=${TAG_NAME}"

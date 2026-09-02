@@ -1,0 +1,74 @@
+version: 2
+
+project_name: opa-authzen-plugin
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: opa-authzen-plugin
+    main: ./cmd/opa-authzen-plugin
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # The hand-rolled release target never built this target and nothing has
+      # asked for it; adding it here would silently widen the release matrix.
+      - goos: windows
+        goarch: arm64
+
+archives:
+  # Releases have always shipped bare binaries named opa_authzen_<os>_<arch>,
+  # not tarballs. Keeping that shape means existing download URLs and any
+  # scripts built on them survive the move to goreleaser.
+  - id: binaries
+    formats:
+      - binary
+    name_template: "opa_authzen_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  # One SPDX document for the module, matching the asset name the previous
+  # pipeline published. goreleaser's per-artifact default would instead emit
+  # one SBOM per binary, which renames five assets for no added information:
+  # the binaries are the same module built for different targets.
+  - id: module
+    artifacts: any
+    documents:
+      - opa_authzen_sbom.spdx.json
+    cmd: syft
+    args:
+      - .
+      - --output
+      - spdx-json=$document
+
+signs:
+  # Only the checksum file is signed: verifying it verifies every asset it
+  # lists, so a release needs one signature rather than one per binary.
+  # cosign's new bundle format carries the signature and the certificate
+  # together, so --bundle replaces the deprecated --output-signature and
+  # --output-certificate pair.
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --yes
+      - --bundle=${signature}
+      - ${artifact}
+    artifacts: checksum
+    output: true
+
+release:
+  # Opened as a draft so the assets and signatures can be checked before the
+  # release is visible, matching the previous pipeline's behavior.
+  draft: true
