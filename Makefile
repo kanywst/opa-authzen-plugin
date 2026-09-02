@@ -69,12 +69,14 @@ DOCKER_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ec
 docker-build:
 	docker build -t $(IMAGE):$(DOCKER_VERSION) .
 
+# --addr is not optional here: OPA binds localhost by default, which a published
+# port cannot reach from outside the container.
 .PHONY: docker-run
 docker-run:
 	docker run --rm -p 8181:8181 \
 		-v $(PWD)/example:/example:ro \
 		$(IMAGE):$(DOCKER_VERSION) \
-		run --server --config-file /example/config.yaml /example/policy.rego
+		run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
 
 .PHONY: test-interop
 test-interop: docker-build

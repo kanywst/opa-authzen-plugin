@@ -217,6 +217,14 @@ make docker-build
 make docker-run
 ```
 
+The published image is `ghcr.io/kanywst/opa-authzen-plugin`. Pass `--addr 0.0.0.0:8181` when you publish the port: OPA binds `localhost` by default, so a container started without it accepts no connections from outside itself.
+
+```bash
+docker run --rm -p 8181:8181 -v "$PWD/example:/example:ro" \
+  ghcr.io/kanywst/opa-authzen-plugin:latest \
+  run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
+```
+
 ## Configuration
 
 The plugin is configured under the `plugins.authzen` key in the OPA config file:
