@@ -49,7 +49,9 @@ jobs:
         working-directory: ./${{ env.RELEASE_DIR }}
         run: sha256sum opa_authzen_* > checksums.txt
 
-      - uses: sigstore/cosign-installer@v4
+      # cosign-installer publishes no floating major tag, so this is pinned to
+      # an exact release and bumped by Dependabot.
+      - uses: sigstore/cosign-installer@v4.1.2
 
       # Only the checksum file is signed: verifying it verifies every asset it
       # lists, which keeps one signature valid for the whole release.
