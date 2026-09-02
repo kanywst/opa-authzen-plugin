@@ -147,6 +147,74 @@ func TestValidateSupportedObligations(t *testing.T) {
 	})
 }
 
+func TestValidateAccessRequestMetadata(t *testing.T) {
+	factory := Factory{}
+
+	t.Run("https URIs are accepted and trimmed", func(t *testing.T) {
+		config := []byte(`{"access_request_endpoint": "  https://requests.example.com/access/v1/requests  ", "jwks_uri": "https://pdp.example.com/access/v1/jwks"}`)
+		result, err := factory.Validate(nil, config)
+		if err != nil {
+			t.Fatalf("Validate should accept https URIs: %v", err)
+		}
+		cfg := result.(*internal.Config)
+		if got, want := cfg.AccessRequestEndpoint, "https://requests.example.com/access/v1/requests"; got != want {
+			t.Errorf("access_request_endpoint = %q, want %q", got, want)
+		}
+		if got, want := cfg.JWKSURI, "https://pdp.example.com/access/v1/jwks"; got != want {
+			t.Errorf("jwks_uri = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("non-https is rejected", func(t *testing.T) {
+		// The profile requires HTTPS for both members.
+		for _, config := range []string{
+			`{"access_request_endpoint": "http://requests.example.com/requests"}`,
+			`{"jwks_uri": "http://pdp.example.com/jwks"}`,
+			`{"access_request_endpoint": "ftp://requests.example.com/requests"}`,
+		} {
+			if _, err := factory.Validate(nil, []byte(config)); err == nil {
+				t.Errorf("Validate should reject a non-https URI: %s", config)
+			}
+		}
+	})
+
+	t.Run("https without a host is rejected", func(t *testing.T) {
+		// "https://" parses cleanly but advertises nothing a PEP can reach.
+		for _, config := range []string{
+			`{"access_request_endpoint": "https://"}`,
+			`{"jwks_uri": "https:///jwks"}`,
+			`{"access_request_endpoint": "/access/v1/requests"}`,
+		} {
+			if _, err := factory.Validate(nil, []byte(config)); err == nil {
+				t.Errorf("Validate should reject a hostless URI: %s", config)
+			}
+		}
+	})
+
+	t.Run("whitespace-only is normalized to unset", func(t *testing.T) {
+		config := []byte(`{"access_request_endpoint": "   ", "jwks_uri": "  "}`)
+		result, err := factory.Validate(nil, config)
+		if err != nil {
+			t.Fatalf("Validate should treat a blank value as unset: %v", err)
+		}
+		cfg := result.(*internal.Config)
+		if cfg.AccessRequestEndpoint != "" || cfg.JWKSURI != "" {
+			t.Errorf("expected blank values to normalize to unset, got %q and %q", cfg.AccessRequestEndpoint, cfg.JWKSURI)
+		}
+	})
+
+	t.Run("unset leaves the profile unadvertised", func(t *testing.T) {
+		result, err := factory.Validate(nil, []byte(`{}`))
+		if err != nil {
+			t.Fatalf("Validate should handle a config without the profile: %v", err)
+		}
+		cfg := result.(*internal.Config)
+		if cfg.AccessRequestEndpoint != "" || cfg.JWKSURI != "" {
+			t.Errorf("expected the profile to be unadvertised by default, got %q and %q", cfg.AccessRequestEndpoint, cfg.JWKSURI)
+		}
+	})
+}
+
 func TestValidateInvalidJSON(t *testing.T) {
 	factory := Factory{}
 	config := []byte(`invalid json`)

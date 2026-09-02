@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -93,6 +94,23 @@ type Config struct {
 	// not implemented. Obligations themselves travel in the Decision context,
 	// via Config.DecisionContext.
 	SupportedObligations []string `json:"supported_obligations,omitempty"`
+	// AccessRequestEndpoint advertises the Access Request Endpoint of the
+	// AuthZEN Access Request and Approval Profile 1.0 as
+	// `access_request_endpoint` in the PDP metadata document (profile section
+	// "Discovery"). The profile allows that endpoint to be hosted by the PDP
+	// itself, by a service the PDP trusts, or by an independent service with
+	// delegated authority, so the value is operator-supplied and this plugin
+	// does not serve the endpoint. The requestable-denial hint itself
+	// (`context.access_request`) travels through Config.DecisionContext, and
+	// the profile's capability URN through Config.Capabilities. Empty means
+	// the profile is not advertised.
+	AccessRequestEndpoint string `json:"access_request_endpoint,omitempty"`
+	// JWKSURI advertises `jwks_uri` in the PDP metadata document. The Access
+	// Request and Approval Profile requires it of a deployment that issues or
+	// verifies signed values under the profile — a JWS `binding_token` or a
+	// signed `approval.state` — so an Access Request Service can resolve the
+	// verification key. Empty omits it.
+	JWKSURI string `json:"jwks_uri,omitempty"`
 }
 
 // SearchConfig configures the optional Search APIs (Section 8 of the AuthZEN
@@ -148,6 +166,34 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 			return nil, fmt.Errorf("supported_obligations[%d] must not be empty", i)
 		}
 		cfg.SupportedObligations[i] = trimmed
+	}
+
+	// The Access Request and Approval Profile requires both of these metadata
+	// members to be HTTPS URIs. They are advertised verbatim, so a bad value
+	// is rejected at startup rather than published to every PEP that reads the
+	// metadata document.
+	for _, field := range []struct {
+		name  string
+		value *string
+	}{
+		{"access_request_endpoint", &cfg.AccessRequestEndpoint},
+		{"jwks_uri", &cfg.JWKSURI},
+	} {
+		trimmed := strings.TrimSpace(*field.value)
+		if trimmed == "" {
+			// Normalize a whitespace-only value to unset so it is omitted from
+			// the metadata rather than advertised as an empty string.
+			*field.value = ""
+			continue
+		}
+		u, err := url.Parse(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("%s %q is not a valid URI: %w", field.name, *field.value, err)
+		}
+		if u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("%s %q must be an https:// URI with a host", field.name, *field.value)
+		}
+		*field.value = trimmed
 	}
 
 	return &cfg, nil
@@ -261,13 +307,18 @@ type evaluationsResponse struct {
 
 // pdpMetadata is the PDP metadata response body (Section 9).
 type pdpMetadata struct {
-	PolicyDecisionPoint       string   `json:"policy_decision_point"`
-	AccessEvaluationEndpoint  string   `json:"access_evaluation_endpoint"`
-	AccessEvaluationsEndpoint string   `json:"access_evaluations_endpoint"`
-	SearchSubjectEndpoint     string   `json:"search_subject_endpoint,omitempty"`
-	SearchResourceEndpoint    string   `json:"search_resource_endpoint,omitempty"`
-	SearchActionEndpoint      string   `json:"search_action_endpoint,omitempty"`
-	Capabilities              []string `json:"capabilities,omitempty"`
+	PolicyDecisionPoint       string `json:"policy_decision_point"`
+	AccessEvaluationEndpoint  string `json:"access_evaluation_endpoint"`
+	AccessEvaluationsEndpoint string `json:"access_evaluations_endpoint"`
+	SearchSubjectEndpoint     string `json:"search_subject_endpoint,omitempty"`
+	SearchResourceEndpoint    string `json:"search_resource_endpoint,omitempty"`
+	SearchActionEndpoint      string `json:"search_action_endpoint,omitempty"`
+	// Access Request and Approval Profile 1.0. Both are omitted unless the
+	// deployment configures them; the absence of access_request_endpoint is
+	// the PEP's signal that this PDP advertises no Access Request Endpoint.
+	AccessRequestEndpoint string   `json:"access_request_endpoint,omitempty"`
+	JWKSURI               string   `json:"jwks_uri,omitempty"`
+	Capabilities          []string `json:"capabilities,omitempty"`
 	// Obligations Profile 1.0. Absence is equivalent to an empty array, so a
 	// PDP that supports none simply omits it.
 	SupportedObligations []string `json:"supported_obligations,omitempty"`
@@ -976,6 +1027,8 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	search := p.cfg.Search
 	capabilities := p.cfg.Capabilities
 	obligations := p.cfg.SupportedObligations
+	accessRequestEndpoint := p.cfg.AccessRequestEndpoint
+	jwksURI := p.cfg.JWKSURI
 	p.mu.RUnlock()
 	if search.Subject != "" {
 		metadata.SearchSubjectEndpoint = base + "/access/v1/search/subject"
@@ -992,6 +1045,12 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	metadata.Capabilities = capabilities
 
 	metadata.SupportedObligations = obligations
+
+	// Access Request and Approval Profile, "Discovery". The endpoint is an
+	// absolute operator-supplied URI rather than one derived from `base`,
+	// because the profile permits a service other than the PDP to host it.
+	metadata.AccessRequestEndpoint = accessRequestEndpoint
+	metadata.JWKSURI = jwksURI
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", metadataCacheControl)
