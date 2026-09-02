@@ -7,13 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v0.7.0] - 2026-09-03
+
+Reaches into a second AuthZEN profile, and moves the release pipeline onto GoReleaser.
+
 ### Added
 
 - New `access_request_endpoint` and `jwks_uri` config options: advertise the discovery members of the [AuthZEN Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) in the PDP metadata document (profile section "Discovery"). Both must be `https://` URIs with a host and are rejected at startup otherwise, since the values are published verbatim to every PEP that reads the metadata. Both are unset by default and omitted when unset — the absence of `access_request_endpoint` is how a PEP learns the PDP advertises no Access Request Endpoint. Only the PDP discovery half of the profile is implemented: the Access Request and Task Status endpoints, the approval workflow, and `binding_token` signing are not, which the profile permits by allowing a service other than the PDP to host them. The requestable-denial hint (`context.access_request`) continues to travel through the existing `decision_context` rule, and the profile's capability URN through `capabilities`.
 
+### Changed
+
+- Releases are now cut by GoReleaser (`.goreleaser.yaml`) instead of a Makefile loop plus `build/github-release.sh`. The published asset names are unchanged — bare `opa_authzen_<os>_<arch>` binaries, one module-wide `opa_authzen_sbom.spdx.json`, `checksums.txt` and its Sigstore bundle — so existing download URLs keep working. `make release` now runs the same pipeline locally in snapshot mode, which the previous arrangement could not do at all. Container image publishing is unchanged.
+
 ### Compatibility
 
-- No behavior change for a deployment that sets neither option: the metadata document is byte-identical.
+- Built against OPA v1.20.0, unchanged from v0.6.1.
+- No behavior change for a deployment that sets neither new option: the metadata document is byte-identical to v0.6.1.
 
 ---
 
@@ -266,7 +277,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...v0.7.0
 [v0.6.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.0...v0.5.1
