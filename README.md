@@ -225,6 +225,8 @@ docker run --rm -p 8181:8181 -v "$PWD/example:/example:ro" \
   run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
 ```
 
+Images and release binaries are signed with Sigstore keyless signing and ship with an SBOM. See [RELEASE.md](RELEASE.md#verifying-a-release) for the verification commands.
+
 ## Configuration
 
 The plugin is configured under the `plugins.authzen` key in the OPA config file:

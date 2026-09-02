@@ -44,17 +44,45 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
    git push origin vX.Y.Z
    ```
 
-6. **Build release artifacts**
+6. **Let the tag workflows run**
 
-   ```bash
-   make release
-   ```
+   Pushing the tag triggers two workflows. `post-tag.yaml` cross-compiles the binaries, generates an SPDX SBOM, writes and signs `checksums.txt`, and opens a **draft** GitHub Release with all of it attached. `publish.yaml` builds and pushes the multi-arch image to `ghcr.io/kanywst/opa-authzen-plugin` with an SBOM and provenance attestation, then signs the pushed digest.
 
-7. **Create GitHub Release**
+7. **Publish the draft Release**
 
-   - Push artifacts from `_release/` directory
-   - Copy CHANGELOG entry to release notes
+   - Confirm both workflows are green and every asset is attached
+   - Copy the CHANGELOG entry into the release notes
    - Mark as "Latest Release" if appropriate
+
+## Verifying a Release
+
+Release artifacts are signed with [Sigstore](https://www.sigstore.dev/) keyless signing, so there is no long-lived key to publish or rotate. Each command below pins the signer identity to this repository's own tag workflow, which is what makes the check meaningful: a signature produced by any other workflow, repository, or laptop fails.
+
+Binaries — verify the signature on `checksums.txt` first, then check the binary against it:
+
+```bash
+cosign verify-blob checksums.txt \
+  --signature checksums.txt.sig \
+  --certificate checksums.txt.pem \
+  --certificate-identity-regexp '^https://github\.com/kanywst/opa-authzen-plugin/\.github/workflows/post-tag\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+sha256sum --check --ignore-missing checksums.txt
+```
+
+Container image:
+
+```bash
+cosign verify ghcr.io/kanywst/opa-authzen-plugin:X.Y.Z \
+  --certificate-identity-regexp '^https://github\.com/kanywst/opa-authzen-plugin/\.github/workflows/publish\.yaml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Bill of materials — the image carries a BuildKit-generated SPDX SBOM and a SLSA provenance attestation, and the GitHub Release carries an SBOM of the source module as `opa_authzen_sbom.spdx.json`:
+
+```bash
+docker buildx imagetools inspect ghcr.io/kanywst/opa-authzen-plugin:X.Y.Z --format '{{ json .SBOM }}'
+```
 
 ## Pre-Release Checks
 
