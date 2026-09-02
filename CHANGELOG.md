@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New `access_request_endpoint` and `jwks_uri` config options: advertise the discovery members of the [AuthZEN Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) in the PDP metadata document (profile section "Discovery"). Both must be `https://` URIs with a host and are rejected at startup otherwise, since the values are published verbatim to every PEP that reads the metadata. Both are unset by default and omitted when unset — the absence of `access_request_endpoint` is how a PEP learns the PDP advertises no Access Request Endpoint. Only the PDP discovery half of the profile is implemented: the Access Request and Task Status endpoints, the approval workflow, and `binding_token` signing are not, which the profile permits by allowing a service other than the PDP to host them. The requestable-denial hint (`context.access_request`) continues to travel through the existing `decision_context` rule, and the profile's capability URN through `capabilities`.
+
+### Compatibility
+
+- No behavior change for a deployment that sets neither option: the metadata document is byte-identical.
+
 ---
 
 ## [v0.6.1] - 2026-09-02

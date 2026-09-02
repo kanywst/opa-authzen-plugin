@@ -60,6 +60,8 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
 | Section 11.7 | Request payload protection (body size limit, batch size limit) | ✅ Supported |
 | [Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html) | Obligation discovery and PEP-capability negotiation | ✅ Supported (opt-in via `supported_obligations`) |
+| [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | PDP discovery: `access_request_endpoint`, `jwks_uri`, capability URN | ✅ Supported (opt-in) — see [below](#access-request-and-approval-profile) |
+| [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | Access Request / Task Status endpoints, approval workflow, token signing | ❌ Not implemented — the profile permits a separate service to host these |
 
 ## Issue Management
 
@@ -244,12 +246,14 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | `search.max_limit`  | int    | `1000`    | Per-page cap; client `page.limit` is clamped to this value               |
 | `capabilities`      | array  | _(unset)_ | PDP capability URNs advertised in the `capabilities` field of the PDP metadata |
 | `supported_obligations` | array | _(unset)_ | Obligation Types advertised in the PDP metadata; also bounds the PEP-declared set on each request |
+| `access_request_endpoint` | string | _(unset)_ | HTTPS URI advertised as `access_request_endpoint` in the PDP metadata (Access Request and Approval Profile) |
+| `jwks_uri`          | string | _(unset)_ | HTTPS URI advertised as `jwks_uri` in the PDP metadata, for verifying signed values issued under that profile |
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
 
 When `decision_context` is set, the named rule is evaluated alongside the decision (under the same policy/data snapshot) and its result is returned as the Decision's optional `context` member (spec Section 5.5.1), letting a policy convey reasons, obligations, or other metadata. The rule must evaluate to a JSON object; an undefined result or an empty object omits `context`, and a non-object result fails the request. `decision_context` is unset by default, so responses carry only `decision` unless you opt in.
 
-The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. For example, a deployment that implements the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) on top of this plugin would advertise `urn:openid:authzen:capability:access-request`.
+The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. A deployment running the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) advertises `urn:openid:authzen:capability:access-request` here — see [below](#access-request-and-approval-profile).
 
 ### Obligations Profile
 
@@ -284,6 +288,46 @@ obligations_ctx := {"obligations": [{
 Leaving `supported_obligations` unset means the PDP does not implement the profile: the metadata member is omitted and request context reaches the policy untouched. If your policy already reads `input.context.supported_obligations` for its own purposes, note that opting in changes what it sees.
 
 The plugin paginates over the **entire** result set returned by the Rego rule, sorting by the entity's `type`+`id` (or `name` for actions) so page boundaries are stable across requests. If your search rules can return very large candidate sets (tens of thousands), prefer filtering inside Rego rather than relying on the plugin's per-page slicing — the rule still runs once per page request, so heavy candidate sets are paid for every call.
+
+### Access Request and Approval Profile
+
+The [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) turns a denial into something a PEP can act on: the PDP marks a denial as _requestable_, and the PEP submits an access request that a human or workflow can approve.
+
+**This plugin implements the PDP discovery half of the profile, not the Access Request Service.** That split is one the profile itself allows — the Access Request Endpoint "MAY be hosted by the PDP itself, by a service trusted by the PDP, or by an independent service operating with delegated authority from the PDP". The endpoint, the Task Status Endpoint, and the approval workflow behind them are stateful, OAuth-protected services; this plugin advertises where they live and lets your policy emit the requestable-denial hint.
+
+Two config keys feed the PDP metadata document:
+
+```yaml
+plugins:
+  authzen:
+    decision_context: denial_ctx
+    access_request_endpoint: "https://requests.example.com/access/v1/requests"
+    jwks_uri: "https://requests.example.com/access/v1/jwks"
+    capabilities:
+      - "urn:openid:authzen:capability:access-request"
+```
+
+Both must be `https://` URIs with a host; a bad value fails at startup rather than being published to every PEP that reads the metadata. Both are unset by default and omitted from the metadata when unset — and the absence of `access_request_endpoint` is exactly how a PEP learns this PDP advertises no Access Request Endpoint. `jwks_uri` is only needed when the deployment issues signed values under the profile, such as a JWS `binding_token`, so it can be left unset while the endpoint is advertised.
+
+The requestable-denial hint itself is policy output, carried by the existing `decision_context` rule:
+
+```rego
+package authzen
+
+denial_ctx := {
+    "reason": "approval_required",
+    "evaluation_id": input.context.request_id,
+    "access_request": {
+        "template": "manager_approval",
+        "expires_at": "2026-09-02T20:25:00Z",
+    },
+} if {
+    not allow
+    input.resource.properties.sensitivity == "high"
+}
+```
+
+The profile requires `expires_at` on every requestable denial, and requires denial-binding material — either a signed `binding_token` or a stable `evaluation_id` the Access Request Service can resolve against shared state. Both are values your policy or Access Request Service produces; the plugin passes the `decision_context` object through unchanged and does not synthesize, sign, or validate them. Emit `context.access_request` **only** when an Access Request Endpoint is actually able to process the request — the profile makes the presence of that object the sole signal that a denial is requestable.
 
 ## API Reference
 

@@ -3200,3 +3200,82 @@ func TestWellKnownAdvertisesSupportedObligations(t *testing.T) {
 		}
 	}
 }
+
+func TestWellKnownOmitsUnsetAccessRequestMetadata(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"access_request_endpoint", "jwks_uri"} {
+		if _, exists := raw[field]; exists {
+			t.Errorf("expected %s to be omitted when unconfigured", field)
+		}
+	}
+}
+
+func TestWellKnownAdvertisesAccessRequestMetadata(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+	p.cfg.AccessRequestEndpoint = "https://requests.example.com/access/v1/requests"
+	p.cfg.JWKSURI = "https://pdp.example.com/access/v1/jwks"
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	// The endpoint is advertised verbatim, not derived from the request host,
+	// because the profile lets a service other than the PDP host it.
+	if got, want := metadata.AccessRequestEndpoint, "https://requests.example.com/access/v1/requests"; got != want {
+		t.Errorf("access_request_endpoint = %q, want %q", got, want)
+	}
+	if got, want := metadata.JWKSURI, "https://pdp.example.com/access/v1/jwks"; got != want {
+		t.Errorf("jwks_uri = %q, want %q", got, want)
+	}
+	// The rest of the document is unchanged by the profile.
+	if got, want := metadata.AccessEvaluationEndpoint, "http://localhost:8181/access/v1/evaluation"; got != want {
+		t.Errorf("access_evaluation_endpoint = %q, want %q", got, want)
+	}
+}
+
+func TestWellKnownAdvertisesAccessRequestEndpointWithoutJWKS(t *testing.T) {
+	// jwks_uri is only required of a deployment that issues signed values, so
+	// the endpoint must be advertisable on its own.
+	p := testPlugin(t, `package authzen`)
+	p.cfg.AccessRequestEndpoint = "https://requests.example.com/access/v1/requests"
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["access_request_endpoint"] != "https://requests.example.com/access/v1/requests" {
+		t.Errorf("unexpected access_request_endpoint: %v", raw["access_request_endpoint"])
+	}
+	if _, exists := raw["jwks_uri"]; exists {
+		t.Error("expected jwks_uri to be omitted when unconfigured")
+	}
+}

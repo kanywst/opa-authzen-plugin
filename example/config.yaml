@@ -24,3 +24,11 @@ plugins:
     # supported_obligations:
     #   - "step-up"
     #   - "notification"
+    # Optional: advertise the Access Request and Approval Profile 1.0 discovery
+    # members in the PDP metadata. Both must be https:// URIs. This plugin does
+    # not host the Access Request Service — the profile allows a separate
+    # service to — so these point at wherever it actually runs. Pair with
+    # `decision_context` to emit `context.access_request` on a requestable
+    # denial, and list the capability URN above.
+    # access_request_endpoint: "https://requests.example.com/access/v1/requests"
+    # jwks_uri: "https://requests.example.com/access/v1/jwks"
