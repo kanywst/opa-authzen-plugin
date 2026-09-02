@@ -58,12 +58,11 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release artifacts are signed with [Sigstore](https://www.sigstore.dev/) keyless signing, so there is no long-lived key to publish or rotate. Each command below pins the signer identity to this repository's own tag workflow, which is what makes the check meaningful: a signature produced by any other workflow, repository, or laptop fails.
 
-Binaries — verify the signature on `checksums.txt` first, then check the binary against it:
+Binaries — verify the signature on `checksums.txt` first, then check the binary against it. The signature and its certificate travel together in `checksums.txt.sigstore.json`, a Sigstore bundle:
 
 ```bash
 cosign verify-blob checksums.txt \
-  --signature checksums.txt.sig \
-  --certificate checksums.txt.pem \
+  --bundle checksums.txt.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/kanywst/opa-authzen-plugin/\.github/workflows/post-tag\.yaml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
