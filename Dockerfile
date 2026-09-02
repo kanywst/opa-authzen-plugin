@@ -6,7 +6,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o opa-authzen-plugin ./cmd/opa-authzen-plugin
 
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN addgroup -S opa && adduser -S opa -G opa
 COPY --from=builder /build/opa-authzen-plugin /usr/local/bin/opa-authzen-plugin
