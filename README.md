@@ -350,6 +350,8 @@ Response: `{"decision": true}`
 
 Batch access evaluations with default value merging and evaluation semantics. See [example/](./example/) for detailed usage.
 
+A request that carries one or more `evaluations` is answered with `{"evaluations": [...]}`, one Decision per request item in the same order. A request whose `evaluations` array is absent or empty is a single Access Evaluation (spec Section 7.1), and is answered with the singular `{"decision": ...}` — not a one-element batch envelope.
+
 ### `POST /access/v1/search/subject`
 
 Subject Search (spec Section 8.4). Requires `search.subject` to be configured. Request body:
