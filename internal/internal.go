@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"slices"
@@ -409,6 +410,22 @@ func normalizePropertiesField(obj map[string]any, name string) string {
 	return ""
 }
 
+// isJSONContentType reports whether the request carries a JSON body per
+// Section 10.1 ("Content-Type: application/json"). RFC 9110 Section 8.3.1
+// makes the media type and its parameter names case-insensitive and allows
+// parameters such as `charset`, so the parsed media type is compared rather
+// than the raw header: `Application/JSON` and `application/json; charset=utf-8`
+// both name the same type. A header whose parameters do not parse falls back
+// to a case-insensitive prefix match so that nothing previously accepted is
+// now rejected.
+func isJSONContentType(ct string) bool {
+	if mediaType, _, err := mime.ParseMediaType(ct); err == nil {
+		return mediaType == "application/json"
+	}
+	lower := strings.ToLower(ct)
+	return lower == "application/json" || strings.HasPrefix(lower, "application/json;")
+}
+
 // isJSONNull returns true if raw represents a JSON null literal.
 func isJSONNull(raw json.RawMessage) bool {
 	return len(raw) == 4 && string(raw) == "null"
@@ -643,7 +660,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Content-Type: application/json is required (Section 10.1).
-	if ct := r.Header.Get("Content-Type"); ct != "application/json" && !strings.HasPrefix(ct, "application/json;") {
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
 		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
 	}
@@ -813,7 +830,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if ct := r.Header.Get("Content-Type"); ct != "application/json" && !strings.HasPrefix(ct, "application/json;") {
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
 		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
 	}
@@ -1107,7 +1124,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		return
 	}
 
-	if ct := r.Header.Get("Content-Type"); ct != "application/json" && !strings.HasPrefix(ct, "application/json;") {
+	if !isJSONContentType(r.Header.Get("Content-Type")) {
 		jsonError(w, "Content-Type must be application/json", http.StatusBadRequest)
 		return
 	}
