@@ -828,7 +828,12 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 	}
 
 	// Backward compatibility (Section 7.1): if evaluations is absent or empty,
-	// behave as a single evaluation.
+	// behave as a single evaluation — request *and* response. Section 7.2
+	// conditions the omission of the top-level `decision` key on the
+	// `evaluations` array being present, and the AuthZEN certification
+	// scenario (c-3-4-2, c-3-4-3) makes the response side explicit: the PDP
+	// "MUST ... return an Access Evaluation response", whose structure the
+	// harness validates. So this branch emits the singular shape.
 	if len(req.Evaluations) == 0 {
 		if req.Subject == nil || isJSONNull(req.Subject) ||
 			req.Action == nil || isJSONNull(req.Action) ||
@@ -864,7 +869,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(evaluationsResponse{Evaluations: []evaluationResponse{{Decision: decision, Context: decisionCtx}}}); err != nil {
+		if err := json.NewEncoder(w).Encode(evaluationResponse{Decision: decision, Context: decisionCtx}); err != nil {
 			p.logger.Error("AuthZEN evaluations: failed to encode response: %v", err)
 		}
 		return

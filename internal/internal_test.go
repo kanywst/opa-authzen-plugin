@@ -705,6 +705,22 @@ func decodeBatchResp(t *testing.T, w *httptest.ResponseRecorder) evaluationsResp
 	return resp
 }
 
+// decodeSingleResp decodes the singular Access Evaluation shape and asserts the
+// batch envelope is absent. The Section 7.1 backward-compatibility branch of
+// the evaluations endpoint must answer in this shape, not wrap the lone
+// decision in an `evaluations` array (certification scenario c-3-4-2/c-3-4-3).
+func decodeSingleResp(t *testing.T, w *httptest.ResponseRecorder) evaluationResponse {
+	t.Helper()
+	if body := w.Body.String(); strings.Contains(body, `"evaluations"`) {
+		t.Fatalf("expected singular Access Evaluation response, got batch envelope: %s", body)
+	}
+	var resp evaluationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode evaluation response: %v\nbody: %s", err, w.Body.String())
+	}
+	return resp
+}
+
 func TestEvaluationsBatchAllAllow(t *testing.T) {
 	p := testPlugin(t, `
 		package authzen
@@ -1186,15 +1202,10 @@ func TestEvaluationsBackwardCompatEmptyArray(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Plural endpoint returns batch response format even for single evaluation
-	var resp evaluationsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.Evaluations) != 1 {
-		t.Fatalf("expected 1 evaluation in batch, got %d", len(resp.Evaluations))
-	}
-	if !resp.Evaluations[0].Decision {
+	// Plural endpoint answers in the singular Access Evaluation shape when the
+	// evaluations array is absent or empty (Section 7.1 / certification c-3-4-2).
+	resp := decodeSingleResp(t, w)
+	if !resp.Decision {
 		t.Fatal("expected decision=true in backward-compat mode")
 	}
 }
@@ -1216,16 +1227,47 @@ func TestEvaluationsBackwardCompatNoArray(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	// Plural endpoint returns batch response format even for single evaluation
-	var resp evaluationsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.Evaluations) != 1 {
-		t.Fatalf("expected 1 evaluation in batch, got %d", len(resp.Evaluations))
-	}
-	if !resp.Evaluations[0].Decision {
+	// Plural endpoint answers in the singular Access Evaluation shape when the
+	// evaluations array is absent or empty (Section 7.1 / certification c-3-4-2).
+	resp := decodeSingleResp(t, w)
+	if !resp.Decision {
 		t.Fatal("expected decision=true in backward-compat mode")
+	}
+}
+
+// TestEvaluationsBackwardCompatResponseShape pins the exact wire format of the
+// Section 7.1 backward-compatibility branch. The AuthZEN certification scenario
+// validates the response *structure* of c-3-4-2 (no evaluations array) and
+// c-3-4-3 (empty evaluations array) against the singular Access Evaluation
+// response, so a batch envelope here is a certification failure.
+func TestEvaluationsBackwardCompatResponseShape(t *testing.T) {
+	module := `
+		package authzen
+		default allow = false
+		allow if input.subject.id == "alice"
+	`
+	for _, tc := range []struct{ name, body string }{
+		{"c-3-4-2 no evaluations array", `{
+			"subject": {"type": "user", "id": "alice"},
+			"action": {"name": "read"},
+			"resource": {"type": "record", "id": "record-1"}
+		}`},
+		{"c-3-4-3 empty evaluations array", `{
+			"subject": {"type": "user", "id": "alice"},
+			"action": {"name": "read"},
+			"resource": {"type": "record", "id": "record-1"},
+			"evaluations": []
+		}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := postEvaluations(testPlugin(t, module), tc.body)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			if got := strings.TrimSpace(w.Body.String()); got != `{"decision":true}` {
+				t.Fatalf(`expected {"decision":true}, got %s`, got)
+			}
+		})
 	}
 }
 
@@ -1916,18 +1958,10 @@ func TestEvaluationsBackwardCompatibilityWithoutEvaluationsArray(t *testing.T) {
 		t.Fatalf("backward compatibility failed: %d, body: %s", w.Code, w.Body.String())
 	}
 
-	var resp evaluationsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to unmarshal response: %v", err)
-	}
-
-	// Should return evaluations-style response (array with 1 item)
-	if len(resp.Evaluations) != 1 {
-		t.Errorf("expected 1 evaluation for backward compat, got %d", len(resp.Evaluations))
-	}
-
-	if resp.Evaluations[0].Decision != true {
-		t.Errorf("expected decision=true for alice, got %v", resp.Evaluations[0].Decision)
+	// Should return the singular Access Evaluation shape, not the batch envelope.
+	resp := decodeSingleResp(t, w)
+	if resp.Decision != true {
+		t.Errorf("expected decision=true for alice, got %v", resp.Decision)
 	}
 }
 
@@ -2865,11 +2899,8 @@ func TestEvaluationsBackwardCompatSurfacesDecisionContext(t *testing.T) {
 	p := testContextPlugin(t, decisionContextModule)
 
 	w := postEvaluations(p, singleEvalBody)
-	resp := decodeBatchResp(t, w)
-	if len(resp.Evaluations) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(resp.Evaluations))
-	}
-	if resp.Evaluations[0].Context == nil {
+	resp := decodeSingleResp(t, w)
+	if resp.Context == nil {
 		t.Fatal("expected decision context in backward-compat response")
 	}
 }
@@ -3053,11 +3084,8 @@ func TestEvaluationsBackwardCompatFiltersDeclaredObligations(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	resp := decodeBatchResp(t, w)
-	if len(resp.Evaluations) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(resp.Evaluations))
-	}
-	assertSeenObligations(t, resp.Evaluations[0].Context, []string{"step-up"})
+	resp := decodeSingleResp(t, w)
+	assertSeenObligations(t, resp.Context, []string{"step-up"})
 }
 
 // obligationSearchModule turns the negotiated set into search results, making
