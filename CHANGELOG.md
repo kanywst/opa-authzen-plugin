@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `Content-Type` check on all three request endpoints now compares the parsed media type instead of the raw header, so it is case-insensitive and tolerant of surrounding whitespace as RFC 9110 Section 8.3.1 requires. `Application/JSON`, `APPLICATION/JSON; CHARSET=utf-8` and `application/json ; charset=utf-8` all name `application/json` and were previously rejected with HTTP 400. `application/json` and `application/json; charset=utf-8` were already accepted and are unaffected, and a header whose parameters do not parse still falls back to the previous prefix match, so nothing that was accepted before is rejected now.
+
 ### Changed
 
 - **Breaking:** `POST /access/v1/evaluations` now answers in the singular Access Evaluation shape (`{"decision": ...}`) when the request carries no `evaluations` array or an empty one, instead of wrapping the lone decision in `{"evaluations": [...]}`. Section 7.1 says such a request "behaves in a backwards-compatible manner with the (single) Access Evaluation API Request" without stating what the response looks like, and the plugin had read that ambiguity the other way. The [AuthZEN certification scenario](https://github.com/openid/authzen/blob/main/certification/authorization-api-1_0-scenario.md) settles it: tests c-3-4-2 and c-3-4-3 require the PDP to "return an Access Evaluation response" and validate the response *structure*, so the previous shape was a Batch Core certification failure. Section 7.2 points the same way, conditioning the omission of the top-level `decision` key on the `evaluations` array being present. The empty-array case was additionally a violation of certification c-3-3-1, which requires the response `evaluations` array to have the same number of elements as the request's — the plugin answered an empty array with a one-element one. A PEP that posts a batch-shaped request with one or more evaluations sees no change; only the array-absent and array-empty paths differ. Any decision context from `decision_context` now rides on the singular response's `context` member.

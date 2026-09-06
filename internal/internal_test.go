@@ -1311,6 +1311,53 @@ func TestEvaluationsContentType(t *testing.T) {
 	}
 }
 
+// TestContentTypeIsCaseInsensitive covers Section 10.1 read through RFC 9110
+// Section 8.3.1, which makes a media type and its parameter names
+// case-insensitive and permits parameters such as `charset`. All three
+// endpoints share the check, so all three are exercised.
+func TestContentTypeIsCaseInsensitive(t *testing.T) {
+	for _, tc := range []struct {
+		contentType string
+		accepted    bool
+	}{
+		{"application/json", true},
+		{"application/json; charset=utf-8", true},
+		{"application/json;charset=UTF-8", true},
+		{"Application/JSON", true},
+		{"APPLICATION/JSON; CHARSET=utf-8", true},
+		{"application/json ; charset=utf-8", true},
+		{"text/plain", false},
+		{"application/jsonp", false},
+		{"", false},
+	} {
+		t.Run(tc.contentType, func(t *testing.T) {
+			if got := isJSONContentType(tc.contentType); got != tc.accepted {
+				t.Fatalf("isJSONContentType(%q) = %v, want %v", tc.contentType, got, tc.accepted)
+			}
+
+			// The helper is only correct if the handlers actually consult it.
+			body := `{"subject":{"type":"user","id":"alice"},"action":{"name":"read"},"resource":{"type":"record","id":"record-1"}}`
+			for path, handler := range map[string]http.HandlerFunc{
+				"/access/v1/evaluation":  testPlugin(t, `package authzen`).handleEvaluation,
+				"/access/v1/evaluations": testPlugin(t, `package authzen`).handleEvaluations,
+			} {
+				req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+				if tc.contentType != "" {
+					req.Header.Set("Content-Type", tc.contentType)
+				}
+				w := httptest.NewRecorder()
+				handler(w, req)
+				rejected := w.Code == http.StatusBadRequest &&
+					strings.Contains(w.Body.String(), "Content-Type must be application/json")
+				if rejected == tc.accepted {
+					t.Fatalf("%s with Content-Type %q: got %d %s, accepted=%v want %v",
+						path, tc.contentType, w.Code, w.Body.String(), !rejected, tc.accepted)
+				}
+			}
+		})
+	}
+}
+
 func TestEvaluationsStoppedPlugin(t *testing.T) {
 	p := testPlugin(t, `package authzen`)
 	p.Stop(context.Background())
