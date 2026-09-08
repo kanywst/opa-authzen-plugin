@@ -4,6 +4,8 @@
 
 An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html) as a native OPA plugin.
 
+> **Looking for `opa-authzen`?** This is it. The repository and Go module are both named **`opa-authzen-plugin`** — import path `github.com/kanywst/opa-authzen-plugin`. The `-plugin` suffix is load-bearing: this is not a gateway or a sidecar in front of OPA, it is a plugin that makes OPA itself serve the AuthZEN endpoints.
+
 ## Architecture
 
 ```text
