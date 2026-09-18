@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [v0.8.0] - 2026-09-18
+
+Settles the response shape of a batch request that carries no batch, and makes `Content-Type` matching follow RFC 9110.
+
 ### Fixed
 
 - The `Content-Type` check on all three request endpoints now compares the parsed media type instead of the raw header, so it is case-insensitive and tolerant of surrounding whitespace as RFC 9110 Section 8.3.1 requires. `Application/JSON`, `APPLICATION/JSON; CHARSET=utf-8` and `application/json ; charset=utf-8` all name `application/json` and were previously rejected with HTTP 400. `application/json` and `application/json; charset=utf-8` were already accepted and are unaffected, and a header whose parameters do not parse still falls back to the previous prefix match, so nothing that was accepted before is rejected now.
@@ -16,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `POST /access/v1/evaluations` now answers in the singular Access Evaluation shape (`{"decision": ...}`) when the request carries no `evaluations` array or an empty one, instead of wrapping the lone decision in `{"evaluations": [...]}`. Section 7.1 says such a request "behaves in a backwards-compatible manner with the (single) Access Evaluation API Request" without stating what the response looks like, and the plugin had read that ambiguity the other way. The [AuthZEN certification scenario](https://github.com/openid/authzen/blob/main/certification/authorization-api-1_0-scenario.md) settles it: tests c-3-4-2 and c-3-4-3 require the PDP to "return an Access Evaluation response" and validate the response *structure*, so the previous shape was a Batch Core certification failure. Section 7.2 points the same way, conditioning the omission of the top-level `decision` key on the `evaluations` array being present. The empty-array case was additionally a violation of certification c-3-3-1, which requires the response `evaluations` array to have the same number of elements as the request's — the plugin answered an empty array with a one-element one. A PEP that posts a batch-shaped request with one or more evaluations sees no change; only the array-absent and array-empty paths differ. Any decision context from `decision_context` now rides on the singular response's `context` member.
 
   **Upgrade hazard:** a PEP that reaches a permit by iterating the response `evaluations` array and denying only when some element denies will now permit *vacuously* on these two paths, because the array it loops over is gone. Such a PEP must read the top-level `decision` instead. Every other parsing pattern we could construct — indexing `evaluations[0]`, guarding on the array's length, optional chaining — fails closed. If you post to `/access/v1/evaluations` without an `evaluations` array, check your PEP before upgrading.
+
+### Compatibility
+
+- Built against OPA v1.20.2, up from v1.20.0 in v0.7.0.
+- Reviewed against the Authorization API 1.0 text at [`openid/authzen`](https://github.com/openid/authzen) commit `6ed00ba` (2026-09-17). The core API document has not changed since the v0.7.0 review, and neither has the certification scenario; the two JSON Schemas under `api/schemas/` did change, in both cases by dropping constraints that contradicted the API text — `additionalProperties: false` is gone from the request schema, and the response `context` is now an unconstrained object rather than the draft-01 `{id, reason_admin, reason_user}` shape. Both changes ratify behavior this plugin already had, so neither requires a change here.
+- The `evaluations` response shape above is the only change a PEP can observe, and only on the array-absent and array-empty paths. Deployments that set no new config key are otherwise byte-identical to v0.7.0.
+- The [Access Request and Approval Profile (Draft 1)](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) tightened its denial-binding rules in the same window (upstream issue #516): binding by reference through `context.evaluation_id` is now scoped to deployments where the Access Request Service shares or is delegated the PDP's state, and a `binding_token` is required — and must be self-contained — when that service is independent of the PDP. The plugin neither synthesizes nor signs either value, so this changes no code, but it does narrow which topologies the plugin alone can serve. The README's profile section now states the split; if your Access Request Service is independent, sign the `binding_token` outside the plugin and publish its key at `jwks_uri`. The README and the example config now also call both opt-in profiles by their upstream titles, which are Draft 1 — the `1_0` in their URLs is the document name, not a released version.
 
 ---
 
@@ -287,7 +300,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...HEAD
+[v0.8.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...v0.7.0
 [v0.6.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.5.1...v0.6.0
