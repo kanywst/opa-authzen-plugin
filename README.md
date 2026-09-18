@@ -309,9 +309,9 @@ plugins:
       - "urn:openid:authzen:capability:access-request"
 ```
 
-Both must be `https://` URIs with a host; a bad value fails at startup rather than being published to every PEP that reads the metadata. Both are unset by default and omitted from the metadata when unset — and the absence of `access_request_endpoint` is exactly how a PEP learns this PDP advertises no Access Request Endpoint. `jwks_uri` is only needed when the deployment issues signed values under the profile, such as a JWS `binding_token`, so it can be left unset while the endpoint is advertised.
+Both must be `https://` URIs with a host; a bad value fails at startup rather than being published to every PEP that reads the metadata. Both are unset by default and omitted from the metadata when unset — and the absence of `access_request_endpoint` is exactly how a PEP learns this PDP advertises no Access Request Endpoint. `jwks_uri` is only needed when the deployment issues signed values under the profile, such as a JWS `binding_token`, so it can be left unset while the endpoint is advertised — but see the binding forms below: a deployment whose Access Request Service is independent of the PDP has to issue that token, and therefore has to publish the key.
 
-The requestable-denial hint itself is policy output, carried by the existing `decision_context` rule:
+The requestable-denial hint itself is policy output, carried by the existing `decision_context` rule. The example below binds the denial by reference, so it assumes the shared-state topology described under the binding forms: something outside the plugin must record what the Access Request Service will later resolve from `evaluation_id`, since a stateless OPA records nothing.
 
 ```rego
 package authzen
@@ -329,7 +329,7 @@ denial_ctx := {
 }
 ```
 
-The profile requires `expires_at` on every requestable denial, and requires denial-binding material — either a signed `binding_token` or a stable `evaluation_id` the Access Request Service can resolve against shared state. Both are values your policy or Access Request Service produces; the plugin passes the `decision_context` object through unchanged and does not synthesize, sign, or validate them. Emit `context.access_request` **only** when an Access Request Endpoint is actually able to process the request — the profile makes the presence of that object the sole signal that a denial is requestable.
+The profile requires `expires_at` on every requestable denial, and requires denial-binding material in at least one of two forms, and which form is available to you depends on your topology. A stable `evaluation_id` binds _by reference_ and applies only where the Access Request Service resolves it against state shared with, or delegated by, the PDP; a signed `binding_token` binds _by value_ and works in any topology. Where the Access Request Service is independent of the PDP, the profile requires the `binding_token` form and requires that token to be self-contained — carrying the denied Subject, Resource, Action, and authorization-relevant Context inline or as a `binding_hash` — because a stateless PDP keeps no decision state for an independent service to fetch. A `binding_token` carrying only an `evaluation_id` does not satisfy that requirement. Emitting both forms is allowed and is worth doing: the profile still recommends a stable `context.evaluation_id`, and when a `binding_token` is present that identifier stops being a binding form and serves as a correlation and audit identifier instead. Both values come from your policy or a PDP-side signer; the plugin passes the `decision_context` object through unchanged and does not synthesize, sign, or validate them, so a deployment that needs the `binding_token` form must sign it outside the plugin and publish the verification key at `jwks_uri`. Emit `context.access_request` **only** when an Access Request Endpoint is actually able to process the request — the profile makes the presence of that object the sole signal that a denial is requestable.
 
 ## API Reference
 
