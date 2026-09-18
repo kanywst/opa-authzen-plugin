@@ -16,7 +16,7 @@ plugins:
     # URNs of its own, so these are operator-supplied and must start with "urn:".
     # capabilities:
     #   - "urn:openid:authzen:capability:access-request"
-    # Optional: opt into the AuthZEN Obligations Profile 1.0. The listed
+    # Optional: opt into the AuthZEN Profile for Obligations (Draft 1). The listed
     # Obligation Types are advertised as `supported_obligations` in the PDP
     # metadata, and a PEP's own `context.supported_obligations` is filtered down
     # to this set before the policy sees it. Pair with `decision_context` to
@@ -24,7 +24,7 @@ plugins:
     # supported_obligations:
     #   - "step-up"
     #   - "notification"
-    # Optional: advertise the Access Request and Approval Profile 1.0 discovery
+    # Optional: advertise the Access Request and Approval Profile (Draft 1) discovery
     # members in the PDP metadata. Both must be https:// URIs. This plugin does
     # not host the Access Request Service — the profile allows a separate
     # service to — so these point at wherever it actually runs. Pair with

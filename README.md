@@ -61,9 +61,11 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
 | Section 11.7 | Request payload protection (body size limit, batch size limit) | ✅ Supported |
-| [Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html) | Obligation discovery and PEP-capability negotiation | ✅ Supported (opt-in via `supported_obligations`) |
-| [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | PDP discovery: `access_request_endpoint`, `jwks_uri`, capability URN | ✅ Supported (opt-in) — see [below](#access-request-and-approval-profile) |
-| [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | Access Request / Task Status endpoints, approval workflow, token signing | ❌ Not implemented — the profile permits a separate service to host these |
+| [Obligations Profile (Draft 1)](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html) | Obligation discovery and PEP-capability negotiation | ✅ Supported (opt-in via `supported_obligations`) |
+| [Access Request and Approval Profile (Draft 1)](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | PDP discovery: `access_request_endpoint`, `jwks_uri`, capability URN | ✅ Supported (opt-in) — see [below](#access-request-and-approval-profile) |
+| [Access Request and Approval Profile (Draft 1)](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) | Access Request / Task Status endpoints, approval workflow, token signing | ❌ Not implemented — the profile permits a separate service to host these |
+
+The Authorization API itself is final at 1.0. The two profiles are not: both are titled **Draft 1** upstream, and the `1_0` in their filenames and URLs is the document name, not a released version. Support for them is opt-in and their normative text can still move — the denial-binding rules in the Access Request and Approval profile changed in September 2026, after this plugin shipped support for its discovery members.
 
 ## Issue Management
 
@@ -259,7 +261,7 @@ The AuthZEN core specification registers no capability URNs of its own (the IANA
 
 ### Obligations Profile
 
-`supported_obligations` opts the PDP into the [AuthZEN Obligations Profile 1.0](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html). Set it to the Obligation Types your policies may issue — a type registered in the "AuthZEN Obligation Types" registry (`step-up`, `notification`, `session_termination`) or the literal `custom`. The registry is IANA "Specification Required" and therefore extensible, so unregistered values are accepted; only empty entries are rejected at startup.
+`supported_obligations` opts the PDP into the [AuthZEN Profile for Obligations (Draft 1)](https://openid.github.io/authzen/authzen-obligations-profile-1_0.html). Set it to the Obligation Types your policies may issue — a type registered in the "AuthZEN Obligation Types" registry (`step-up`, `notification`, `session_termination`) or the literal `custom`. The registry is IANA "Specification Required" and therefore extensible, so unregistered values are accepted; only empty entries are rejected at startup.
 
 The list does two things. It is advertised as the `supported_obligations` member of the PDP metadata, so a PEP can discover which types it must be prepared to execute. And it bounds the PEP's own `context.supported_obligations` array on each request: the profile requires a PDP to ignore any declared value it did not itself advertise, so the plugin filters the member before the input reaches Rego. Your policy can therefore read `input.context.supported_obligations` and trust every entry is a type this PDP is configured to issue. A member that survives filtering as an empty array is kept — a PEP declaring only unsupported types is telling you something, which the profile distinguishes from an absent member — while a member that is not an array at all is removed.
 
@@ -293,7 +295,7 @@ The plugin paginates over the **entire** result set returned by the Rego rule, s
 
 ### Access Request and Approval Profile
 
-The [Access Request and Approval Profile 1.0](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) turns a denial into something a PEP can act on: the PDP marks a denial as _requestable_, and the PEP submits an access request that a human or workflow can approve.
+The [Access Request and Approval Profile (Draft 1)](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) turns a denial into something a PEP can act on: the PDP marks a denial as _requestable_, and the PEP submits an access request that a human or workflow can approve.
 
 **This plugin implements the PDP discovery half of the profile, not the Access Request Service.** That split is one the profile itself allows — the Access Request Endpoint "MAY be hosted by the PDP itself, by a service trusted by the PDP, or by an independent service operating with delegated authority from the PDP". The endpoint, the Task Status Endpoint, and the approval workflow behind them are stateful, OAuth-protected services; this plugin advertises where they live and lets your policy emit the requestable-denial hint.
 
