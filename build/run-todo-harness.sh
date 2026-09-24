@@ -4,8 +4,8 @@
 # plugin, loaded with the Todo policy and data from opa-authzen-interop.
 # Usage: run-todo-harness.sh BINARY SPEC_DIR INTEROP_DIR
 #
-# The runner always exits 0, so the verdict is read from its output: any FAIL
-# or ERROR line, or no PASS line at all, fails the run.
+# The runner exits 0 whatever the results, so the verdict is read from its
+# output: every case in the decisions file must print PASS.
 set -euo pipefail
 
 bin=$1 spec=$2 interop=$3
@@ -19,6 +19,12 @@ typescript=typescript@5.9.3
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 harness="$spec/interop/authzen-todo-backend"
 log=$(mktemp)
+
+# Something already answering on the port would be tested in place of $bin.
+if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
+  echo "port $port is already in use; set AUTHZEN_HARNESS_PORT" >&2
+  exit 1
+fi
 
 "$bin" run --server --addr "127.0.0.1:$port" \
   --config-file "$script_dir/todo-harness-config.yaml" \
@@ -46,11 +52,19 @@ fi
   cp test/*.json build/test/
 )
 
+expected=$(cd "$harness/test" && node -p \
+  "const d = require('./decisions-$decisions.json'); (d.evaluation || []).length + (d.evaluations || []).length")
+
+rc=0
 out=$(node "$harness/build/test/runner.js" "http://127.0.0.1:$port" "$decisions" console 2>&1 |
-  sed 's/\x1b\[[0-9;]*m//g')
+  sed 's/\x1b\[[0-9;]*m//g') || rc=$?
 echo "$out"
+if [ "$rc" -ne 0 ]; then
+  echo "==> runner exited $rc" >&2
+  exit "$rc"
+fi
 
 pass=$(grep -c '^PASS' <<<"$out" || true)
 bad=$(grep -cE '^(FAIL|ERROR)' <<<"$out" || true)
-echo "==> interop Todo harness ($decisions): $pass passed, $bad failed"
-[ "$bad" -eq 0 ] && [ "$pass" -gt 0 ]
+echo "==> interop Todo harness ($decisions): $pass/$expected passed, $bad failed"
+[ "$bad" -eq 0 ] && [ "$pass" -eq "$expected" ]
