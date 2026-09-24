@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Fetch a subset of a GitHub repository at one exact commit into DIR.
 # Usage: fetch-sparse.sh URL COMMIT DIR PATH...
-# Reuses DIR when it is already checked out at COMMIT, so repeated make runs do
-# not hit the network.
 set -euo pipefail
 
 url=$1 commit=$2 dir=$3

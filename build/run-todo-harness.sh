@@ -1,26 +1,17 @@
 #!/usr/bin/env bash
-# Run the AuthZEN working group's interop Todo harness
-# (openid/authzen interop/authzen-todo-backend/test/runner.ts) against this
-# plugin, loaded with the Todo policy and data from opa-authzen-interop.
 # Usage: run-todo-harness.sh BINARY SPEC_DIR INTEROP_DIR
-#
-# The runner exits 0 whatever the results, so the verdict is read from its
-# output: every case in the decisions file must print PASS.
 set -euo pipefail
 
 bin=$1 spec=$2 interop=$3
 decisions=authorization-api-1_0-02
 port=${AUTHZEN_HARNESS_PORT:-18181}
-# The harness's own `yarn build` does not compile under the TypeScript 7 its
-# package.json now resolves to, and its server sources fail type checking
-# under 5.x. Compile only the runner, with a pinned 5.x.
+# The harness's `yarn build` fails under TypeScript 7; compile only the runner.
 typescript=typescript@5.9.3
 
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 harness="$spec/interop/authzen-todo-backend"
 log=$(mktemp)
 
-# Something already answering on the port would be tested in place of $bin.
 if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
   echo "port $port is already in use; set AUTHZEN_HARNESS_PORT" >&2
   exit 1
@@ -55,6 +46,7 @@ fi
 expected=$(cd "$harness/test" && node -p \
   "const d = require('./decisions-$decisions.json'); (d.evaluation || []).length + (d.evaluations || []).length")
 
+# The runner exits 0 regardless of results.
 rc=0
 out=$(node "$harness/build/test/runner.js" "http://127.0.0.1:$port" "$decisions" console 2>&1 |
   sed 's/\x1b\[[0-9;]*m//g') || rc=$?

@@ -1,9 +1,5 @@
-# Plugin config for the AuthZEN interop Todo harness (make test-harness).
-#
-# Deliberately decision-only. The harness compares each Access Evaluations
-# response to its expected value with JSON.stringify, so the optional
-# per-item `context` member (spec Section 5.5.1) that decision_context adds
-# reads as a failure even when every decision is right.
+# No decision_context: the harness compares batch results with JSON.stringify,
+# so an optional per-item context reads as a failure.
 plugins:
   authzen:
     path: "authzen"
