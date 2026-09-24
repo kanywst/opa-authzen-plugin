@@ -2,7 +2,10 @@ module github.com/kanywst/opa-authzen-plugin
 
 go 1.26.1
 
-require github.com/open-policy-agent/opa v1.20.2
+require (
+	github.com/open-policy-agent/opa v1.20.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+)
 
 require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect

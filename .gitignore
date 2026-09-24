@@ -4,3 +4,4 @@
 /_*
 /dist/
 .interop-test/
+.authzen-spec/
