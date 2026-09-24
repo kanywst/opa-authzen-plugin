@@ -5,3 +5,4 @@
 /dist/
 .interop-test/
 .authzen-spec/
+.authzen-interop/

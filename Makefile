@@ -25,7 +25,7 @@ release:
 .PHONY: clean
 clean:
 	rm -f $(BIN)
-	rm -rf dist .authzen-spec
+	rm -rf dist .authzen-spec .authzen-interop
 
 .PHONY: fmt
 fmt:
@@ -74,11 +74,13 @@ docker-run:
 		$(IMAGE):$(DOCKER_VERSION) \
 		run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
 
-# Conformance against the AuthZEN working group's own artifacts, fetched at a
-# pinned commit because openid/authzen carries no license to vendor under.
-# Bump the ref deliberately and re-run the target when you do.
+# Conformance against the AuthZEN working group's own artifacts, both fetched
+# at pinned commits because openid/authzen carries no license to vendor under.
+# Bump the refs deliberately and re-run both targets when you do.
 AUTHZEN_SPEC_REF ?= 6ed00bad5daa8f6eef6f2aef1f124442beeb8382
 AUTHZEN_SPEC_DIR := .authzen-spec
+AUTHZEN_INTEROP_REF ?= 0822942b4d849932ee70b93b6ebad0abc553738a
+AUTHZEN_INTEROP_DIR := .authzen-interop
 
 .PHONY: authzen-spec
 authzen-spec:
@@ -89,6 +91,13 @@ authzen-spec:
 .PHONY: test-contract
 test-contract: authzen-spec
 	AUTHZEN_SPEC_DIR=$(abspath $(AUTHZEN_SPEC_DIR)) $(GO) test -v -run 'TestSpecSchema' ./internal/
+
+# Runs the interop Todo harness (needs node and yarn).
+.PHONY: test-harness
+test-harness: build authzen-spec
+	@build/fetch-sparse.sh https://github.com/kanywst/opa-authzen-interop.git $(AUTHZEN_INTEROP_REF) $(AUTHZEN_INTEROP_DIR) \
+		/policy/ /data/
+	build/run-todo-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR) $(AUTHZEN_INTEROP_DIR)
 
 .PHONY: test-interop
 test-interop: docker-build
