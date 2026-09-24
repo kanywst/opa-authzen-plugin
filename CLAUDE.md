@@ -23,6 +23,7 @@ make docker-build   # Build Docker image
 make docker-run     # Run in Docker with example config
 make test-interop   # E2E tests via opa-authzen-interop (clones external repo)
 make test-contract  # Check against the published AuthZEN JSON Schemas (fetched at a pinned commit)
+make test-harness   # Run the AuthZEN working group's interop Todo harness (needs node + yarn)
 ```
 
 Run a single test:
