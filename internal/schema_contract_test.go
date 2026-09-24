@@ -68,6 +68,9 @@ func specRequestExamples(t *testing.T, dir string) map[string]json.RawMessage {
 		Examples []json.RawMessage `json:"examples"`
 	}
 	readJSON(t, filepath.Join(dir, "api", "schemas", "evaluation-request.schema.json"), &schema)
+	if len(schema.Examples) == 0 {
+		t.Fatal("request schema has no examples")
+	}
 	for i, ex := range schema.Examples {
 		out["schema-example-"+strconv.Itoa(i)] = ex
 	}
@@ -78,12 +81,11 @@ func specRequestExamples(t *testing.T, dir string) map[string]json.RawMessage {
 		} `json:"evaluation"`
 	}
 	readJSON(t, filepath.Join(dir, "interop", "authzen-todo-backend", "test", "decisions-authorization-api-1_0-02.json"), &decisions)
+	if len(decisions.Evaluation) == 0 {
+		t.Fatal("interop Todo decision file has no evaluation cases")
+	}
 	for i, d := range decisions.Evaluation {
 		out["interop-todo-"+strconv.Itoa(i)] = d.Request
-	}
-
-	if len(out) == 0 {
-		t.Fatal("no example requests found in the spec checkout")
 	}
 	return out
 }
