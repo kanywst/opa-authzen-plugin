@@ -44,3 +44,13 @@ jobs:
       - uses: actions/checkout@v7
       - name: Basic smoke and e2e test with interop
         run: make test-interop
+
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Published AuthZEN evaluation schemas
+        run: make test-contract

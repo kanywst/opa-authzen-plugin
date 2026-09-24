@@ -25,7 +25,7 @@ release:
 .PHONY: clean
 clean:
 	rm -f $(BIN)
-	rm -rf dist
+	rm -rf dist .authzen-spec
 
 .PHONY: fmt
 fmt:
@@ -73,6 +73,22 @@ docker-run:
 		-v $(PWD)/example:/example:ro \
 		$(IMAGE):$(DOCKER_VERSION) \
 		run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
+
+# Conformance against the AuthZEN working group's own artifacts, fetched at a
+# pinned commit because openid/authzen carries no license to vendor under.
+# Bump the ref deliberately and re-run the target when you do.
+AUTHZEN_SPEC_REF ?= 6ed00bad5daa8f6eef6f2aef1f124442beeb8382
+AUTHZEN_SPEC_DIR := .authzen-spec
+
+.PHONY: authzen-spec
+authzen-spec:
+	@build/fetch-sparse.sh https://github.com/openid/authzen.git $(AUTHZEN_SPEC_REF) $(AUTHZEN_SPEC_DIR) \
+		/api/schemas/ /interop/authzen-todo-backend/
+
+# Checks requests and responses against the published evaluation JSON Schemas.
+.PHONY: test-contract
+test-contract: authzen-spec
+	AUTHZEN_SPEC_DIR=$(abspath $(AUTHZEN_SPEC_DIR)) $(GO) test -v -run 'TestSpecSchema' ./internal/
 
 .PHONY: test-interop
 test-interop: docker-build

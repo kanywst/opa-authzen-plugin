@@ -22,6 +22,7 @@ make release        # GoReleaser snapshot build into dist/ (no publish, no signi
 make docker-build   # Build Docker image
 make docker-run     # Run in Docker with example config
 make test-interop   # E2E tests via opa-authzen-interop (clones external repo)
+make test-contract  # Check against the published AuthZEN JSON Schemas (fetched at a pinned commit)
 ```
 
 Run a single test:
