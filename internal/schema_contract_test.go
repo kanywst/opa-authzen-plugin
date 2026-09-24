@@ -12,11 +12,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// The AuthZEN working group publishes JSON Schemas for the Access Evaluation
-// request and response (openid/authzen, api/schemas). The repository carries
-// no license, so the schemas are not vendored here: `make test-contract`
-// fetches them at a pinned commit and points AUTHZEN_SPEC_DIR at the checkout.
-// Without it these tests skip.
+// Set by `make test-contract`; the tests skip without it.
 const specDirEnv = "AUTHZEN_SPEC_DIR"
 
 type specSchemas struct {
@@ -57,9 +53,6 @@ func decodeForSchema(t *testing.T, raw []byte) any {
 	return v
 }
 
-// specRequestExamples returns the request schema's own `examples` plus every
-// single-evaluation request from the interop Todo decision file, so the
-// corpus of known-valid requests comes from the working group, not from us.
 func specRequestExamples(t *testing.T, dir string) map[string]json.RawMessage {
 	t.Helper()
 	out := map[string]json.RawMessage{}
@@ -101,18 +94,14 @@ func readJSON(t *testing.T, path string, v any) {
 	}
 }
 
-// TestSpecSchemaRequestAgreement checks that the plugin and the published
-// request schema agree on which Access Evaluation requests are valid (Section
-// 6.1): a request the schema accepts must get a 200 whose body satisfies the
-// response schema, and a request the schema rejects must get a 400.
+// Section 6.1: schema-valid requests get 200, schema-invalid ones get 400.
 func TestSpecSchemaRequestAgreement(t *testing.T) {
 	s := loadSpecSchemas(t)
 	p := testContextPlugin(t, decisionContextModule)
 
 	type tc struct {
 		body string
-		// lenient marks a request the schema rejects but the plugin
-		// deliberately accepts. Each one needs a reason.
+		// Why the plugin accepts a request the schema rejects.
 		lenient string
 	}
 	cases := map[string]tc{
@@ -171,10 +160,7 @@ func TestSpecSchemaRequestAgreement(t *testing.T) {
 	}
 }
 
-// TestSpecSchemaBatchResponses checks that every element of an Access
-// Evaluations response is a Decision in the sense of the published response
-// schema (Section 7.2), including the per-item error form and items that
-// carry a decision context.
+// Section 7.2: every evaluations item is a schema-valid Decision.
 func TestSpecSchemaBatchResponses(t *testing.T) {
 	s := loadSpecSchemas(t)
 
