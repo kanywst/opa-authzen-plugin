@@ -2593,8 +2593,8 @@ func TestSearch_EmptyResults(t *testing.T) {
 	// Rule that returns nothing for non-matching input.
 	p := testSearchPlugin(t, `
 		package authzen
-		subject_search contains {"type": "user", "id": u} if {
-			some u in []
+		subject_search contains {"type": "user", "id": "alice"} if {
+			input.resource.id == "does-not-exist"
 		}
 	`)
 	w := doSearch(t, p, "/access/v1/search/subject", `{
