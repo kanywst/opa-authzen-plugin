@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -1277,7 +1278,7 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 	if !ok {
 		return nil, fmt.Sprintf("search rule must return an array; got %T", raw)
 	}
-	out := make([]any, 0, len(list))
+	entities := make([]map[string]any, 0, len(list))
 	for _, item := range list {
 		obj, ok := item.(map[string]any)
 		if !ok {
@@ -1286,12 +1287,69 @@ func normaliseSearchResults(raw any, kind searchKind) ([]any, string) {
 		if errMsg := validateSearchEntity(obj, kind); errMsg != "" {
 			return nil, errMsg
 		}
-		out = append(out, obj)
+		entities = append(entities, obj)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return searchEntityKey(out[i].(map[string]any), kind) < searchEntityKey(out[j].(map[string]any), kind)
+	sort.SliceStable(entities, func(i, j int) bool {
+		return searchEntityKey(entities[i], kind) < searchEntityKey(entities[j], kind)
 	})
+	out := make([]any, len(entities))
+	for i, e := range entities {
+		out[i] = searchEntity(e)
+	}
 	return out, ""
+}
+
+// searchEntity serializes an entity with its Section 5 identifying members
+// first, in the order the spec's examples use (`type`, `id`, then `name`),
+// followed by any other members sorted by key. JSON member order carries no
+// meaning (RFC 8259 Section 4), but the AuthZEN Search interop harness
+// compares results as serialized strings, so the default sorted-key encoding
+// ({"id":...,"type":...}) fails every Subject and Resource Search case there.
+type searchEntity map[string]any
+
+func (e searchEntity) MarshalJSON() ([]byte, error) {
+	rank := func(k string) int {
+		switch k {
+		case "type":
+			return 0
+		case "id":
+			return 1
+		case "name":
+			return 2
+		}
+		return 3
+	}
+	keys := make([]string, 0, len(e))
+	for k := range e {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if ri, rj := rank(keys[i]), rank(keys[j]); ri != rj {
+			return ri < rj
+		}
+		return keys[i] < keys[j]
+	})
+
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		vb, err := json.Marshal(e[k])
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(kb)
+		buf.WriteByte(':')
+		buf.Write(vb)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
 }
 
 // validateSearchEntity enforces Section 8.3 ("results MUST contain only
