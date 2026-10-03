@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.9.0] - 2026-10-03
+
+Moves to OPA v1.21.0, which carries two breaking changes of its own. The plugin code is unchanged: `internal/` has no non-test changes since v0.8.0, and every AuthZEN endpoint behaves identically. The minor bump is for what OPA now does to your policies and YAML, not for anything the plugin does.
+
+### Changed
+
+- **Breaking (from OPA v1.21.0):** the type checker now types empty composite literals as empty ([open-policy-agent/opa#7275](https://github.com/open-policy-agent/opa/issues/7275)). Selecting from or iterating an empty literal — `some x in []`, `{}.foo` — and comparing an empty object or array literal against a value whose type cannot be empty are now `rego_type_error`s, so a policy that compiled under v0.8.0 can fail to load. Use `count(x) == 0` to test for emptiness. The bundled examples under `example/` are unaffected; one test policy in this repository used `some u in []` and was rewritten.
+- **Breaking (from OPA v1.21.0):** YAML is parsed against the 1.2 core schema ([open-policy-agent/opa#5754](https://github.com/open-policy-agent/opa/issues/5754)). The bare words `y`, `n`, `yes`, `no`, `on` and `off` are now strings rather than booleans everywhere OPA reads YAML, which includes the config file that carries `plugins.authzen`, `--data` files, bundles, and `yaml.unmarshal`. `true` and `false` are unaffected. If a config or data file relied on `yes`/`no`/`on`/`off` meaning a boolean, write `true`/`false` instead.
+
+### Added
+
+- `make test-contract` checks evaluation requests and responses against the JSON Schemas published under `api/schemas/` in `openid/authzen`, fetched at a pinned commit. Every schema-valid request, including the schema's own examples and the interop Todo fixtures, must get HTTP 200 with a schema-valid response, and every schema-invalid one HTTP 400, with the two places the plugin is deliberately lenient (a JSON `null` member treated as absent) listed by name.
+- `make test-harness` runs the AuthZEN working group's interop Todo harness against the plugin. CI runs both targets on every pull request and every push to `main`. It fails when the harness reports a missing case or the port is already taken, rather than passing vacuously.
+
+### Compatibility
+
+- Built against OPA v1.21.0, up from v1.20.2 in v0.8.0. Read the [OPA v1.21.0 release notes](https://github.com/open-policy-agent/opa/releases/tag/v1.21.0) before upgrading; the two breaking changes above are the ones most likely to reach an AuthZEN deployment.
+- `github.com/santhosh-tekuri/jsonschema/v6` is a new direct requirement in `go.mod`, used only by the contract tests. It is not linked into the binary.
+- Reviewed against [`openid/authzen`](https://github.com/openid/authzen) commit `b304f68` (2026-10-01). Since `6ed00ba`, the core API document, the JSON Schemas and the certification scenario are unchanged. The Access Request and Approval Profile was restructured into a core-first base profile plus four companions (catalog, bulk, callback, actor), but the PDP discovery rules this plugin implements — `access_request_endpoint` as an `https://` URI, the `urn:openid:authzen:capability:access-request` capability, and `jwks_uri` for a PDP that issues or verifies signed values — read the same, so `access_request_endpoint` and `jwks_uri` need no change. The companions all describe the Access Request Service, which the plugin does not host.
+
+---
+
 ## [v0.8.0] - 2026-09-18
 
 Settles the response shape of a batch request that carries no batch, and makes `Content-Type` matching follow RFC 9110.
@@ -300,7 +322,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...HEAD
+[v0.9.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...v0.7.0
 [v0.6.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.0...v0.6.1
