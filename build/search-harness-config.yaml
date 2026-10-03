@@ -1,0 +1,8 @@
+plugins:
+  authzen:
+    path: "authzen"
+    decision: "allow"
+    search:
+      subject: "subject_search"
+      resource: "resource_search"
+      action: "action_search"

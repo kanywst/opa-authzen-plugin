@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `make test-harness` now also runs the AuthZEN working group's Search interop harness (`interop/authzen-search-demo`), 198 Subject, Resource and Action Search cases, against a Rego transcription of the demo's authorization model in `build/search-harness.rego`. CI runs it next to the Todo harness, with the same rule that a missing case or a busy port fails the run.
+
 ### Fixed
 
 - Subject and Resource Search results now serialize as `{"type": ..., "id": ...}` followed by any other members in key order, instead of Go's sorted-key order (`{"id": ..., "type": ...}`). Action Search results lead with `name` the same way. JSON member order carries no meaning (RFC 8259 Section 4) and the values are unchanged, but the AuthZEN working group's Search interop harness compares results as serialized strings, so the old order failed all 78 of its Subject and Resource Search cases.
