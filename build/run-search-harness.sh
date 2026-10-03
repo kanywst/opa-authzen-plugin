@@ -11,6 +11,8 @@ script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 demo="$spec/interop/authzen-search-demo"
 harness="$demo/test-harness"
 work=$(mktemp -d)
+pdp=
+trap '[ -n "$pdp" ] && kill "$pdp" 2>/dev/null; rm -rf "$work"' EXIT
 
 if curl -s -o /dev/null "http://127.0.0.1:$port/"; then
   echo "port $port is already in use; set AUTHZEN_HARNESS_PORT" >&2
@@ -28,7 +30,6 @@ node -e '
   --config-file "$script_dir/search-harness-config.yaml" \
   "$script_dir/search-harness.rego" "$work/data/" >"$work/pdp.log" 2>&1 &
 pdp=$!
-trap 'kill "$pdp" 2>/dev/null || true; rm -rf "$work"' EXIT
 
 for _ in $(seq 1 50); do
   curl -sf "http://127.0.0.1:$port/health" >/dev/null && break
