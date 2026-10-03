@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The draft GitHub Release that a tag push opens now carries the finished body: the release date, that version's CHANGELOG section, and the `cosign` commands that verify its assets and image tag. `build/release-notes.sh` writes it from `CHANGELOG.md` and the tag workflow passes it to GoReleaser, which used to fill the draft with a raw commit list that had to be replaced by hand before publishing. `make release-notes TAG=vX.Y.Z` previews it, and the workflow fails if the version has no `## [vX.Y.Z] - YYYY-MM-DD` section.
+
 ### Added
 
 - `make test-harness` now also runs the AuthZEN working group's Search interop harness (`interop/authzen-search-demo`), 198 Subject, Resource and Action Search cases, against a Rego transcription of the demo's authorization model in `build/search-harness.rego`. CI runs it next to the Todo harness, with the same rule that a missing case or a busy port fails the run.

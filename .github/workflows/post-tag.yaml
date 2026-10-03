@@ -18,7 +18,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
         with:
-          # goreleaser derives the version and changelog from tag history.
+          # goreleaser derives the version from tag history.
           fetch-depth: 0
 
       - name: Set up Go
@@ -38,10 +38,15 @@ jobs:
         id: tools
         run: echo "goreleaser=$(make -s print-goreleaser-version)" >> "$GITHUB_OUTPUT"
 
+      # Without --release-notes GoReleaser fills the draft with a raw commit
+      # list. The body comes from the CHANGELOG section for this tag instead.
+      - name: Write release notes
+        run: build/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: ${{ steps.tools.outputs.goreleaser }}
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
