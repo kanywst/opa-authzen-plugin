@@ -46,6 +46,11 @@ GORELEASER_VERSION ?= v2.18.0
 print-golangci-lint-version:
 	@echo $(GOLANGCI_LINT_VERSION)
 
+# Preview the GitHub Release body for a tag, e.g. `make release-notes TAG=v0.9.0`.
+.PHONY: release-notes
+release-notes:
+	@build/release-notes.sh $(TAG)
+
 .PHONY: print-goreleaser-version
 print-goreleaser-version:
 	@echo $(GORELEASER_VERSION)

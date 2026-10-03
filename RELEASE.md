@@ -36,6 +36,7 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
    - Move "Unreleased" section content to new version heading
    - Follow [Keep a Changelog](https://keepachangelog.com/) format
    - Include OPA version compatibility note
+   - The heading must read `## [vX.Y.Z] - YYYY-MM-DD`: the tag workflow builds the release body from that section, and fails if it cannot find it. Preview the body with `make release-notes TAG=vX.Y.Z`
 
 5. **Dry-run the release locally (optional)**
 
@@ -54,12 +55,12 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 7. **Let the tag workflows run**
 
-   Pushing the tag triggers two workflows. `post-tag.yaml` runs GoReleaser, which cross-compiles the binaries, generates an SPDX SBOM, writes and signs `checksums.txt`, and opens a **draft** GitHub Release with all of it attached. `publish.yaml` builds and pushes the multi-arch image to `ghcr.io/kanywst/opa-authzen-plugin` with an SBOM and provenance attestation, then signs the pushed digest.
+   Pushing the tag triggers two workflows. `post-tag.yaml` runs GoReleaser, which cross-compiles the binaries, generates an SPDX SBOM, writes and signs `checksums.txt`, and opens a **draft** GitHub Release with all of it attached. The draft's body is written by `build/release-notes.sh`: the release date, the CHANGELOG section for the tag, and the verification commands below with the image tag filled in. `publish.yaml` builds and pushes the multi-arch image to `ghcr.io/kanywst/opa-authzen-plugin` with an SBOM and provenance attestation, then signs the pushed digest.
 
 8. **Publish the draft Release**
 
    - Confirm both workflows are green and every asset is attached
-   - Copy the CHANGELOG entry into the release notes
+   - Read the generated body; it should need no edits
    - Mark as "Latest Release" if appropriate
 
 ## Verifying a Release
