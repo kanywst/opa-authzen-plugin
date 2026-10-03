@@ -83,7 +83,8 @@ AUTHZEN_INTEROP_DIR := .authzen-interop
 .PHONY: authzen-spec
 authzen-spec:
 	@build/fetch-sparse.sh https://github.com/openid/authzen.git $(AUTHZEN_SPEC_REF) $(AUTHZEN_SPEC_DIR) \
-		/api/schemas/ /interop/authzen-todo-backend/
+		/api/schemas/ /interop/authzen-todo-backend/ \
+		/interop/authzen-search-demo/data/ /interop/authzen-search-demo/test-harness/
 
 .PHONY: test-contract
 test-contract: authzen-spec
@@ -95,6 +96,7 @@ test-harness: build authzen-spec
 	@build/fetch-sparse.sh https://github.com/kanywst/opa-authzen-interop.git $(AUTHZEN_INTEROP_REF) $(AUTHZEN_INTEROP_DIR) \
 		/policy/ /data/
 	build/run-todo-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR) $(AUTHZEN_INTEROP_DIR)
+	build/run-search-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR)
 
 .PHONY: test-interop
 test-interop: docker-build

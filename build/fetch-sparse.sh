@@ -6,6 +6,8 @@ url=$1 commit=$2 dir=$3
 shift 3
 
 if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$commit" ]; then
+  # The path list may have grown since the last fetch.
+  git -C "$dir" sparse-checkout set --no-cone "$@"
   exit 0
 fi
 
