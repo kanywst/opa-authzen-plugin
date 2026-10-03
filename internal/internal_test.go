@@ -2617,6 +2617,43 @@ func TestSearch_EmptyResults(t *testing.T) {
 	}
 }
 
+// TestSearch_EntityMemberOrder pins the serialized member order of search
+// results: `type` and `id` (or `name`) first, then the rest by key. The
+// AuthZEN Search interop harness compares results as JSON strings, so this
+// order is observable even though JSON gives it no meaning.
+func TestSearch_EntityMemberOrder(t *testing.T) {
+	p := testSearchPlugin(t, `
+		package authzen
+		subject_search contains {"type": "user", "id": "alice", "properties": {"z": 1, "a": 2}, "extra": true}
+		action_search contains {"name": "read", "properties": {"b": 1}}
+	`)
+	cases := []struct {
+		path, body, want string
+	}{
+		{
+			path: "/access/v1/search/subject",
+			body: `{"subject":{"type":"user"},"action":{"name":"read"},"resource":{"type":"doc","id":"1"}}`,
+			want: `"results":[{"type":"user","id":"alice","extra":true,"properties":{"a":2,"z":1}}]`,
+		},
+		{
+			path: "/access/v1/search/action",
+			body: `{"subject":{"type":"user","id":"alice"},"resource":{"type":"doc","id":"1"}}`,
+			want: `"results":[{"name":"read","properties":{"b":1}}]`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.path, func(t *testing.T) {
+			w := doSearch(t, p, c.path, c.body)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), c.want) {
+				t.Fatalf("expected body to contain %s, got %s", c.want, w.Body.String())
+			}
+		})
+	}
+}
+
 // TestSearch_RejectsMistypedSubjectResults verifies Section 8.3:
 // `results` MUST contain only entities of the type being searched for.
 // A Subject Search rule that returns objects without a `type` field is a

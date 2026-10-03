@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Subject and Resource Search results now serialize as `{"type": ..., "id": ...}` followed by any other members in key order, instead of Go's sorted-key order (`{"id": ..., "type": ...}`). Action Search results lead with `name` the same way. JSON member order carries no meaning (RFC 8259 Section 4) and the values are unchanged, but the AuthZEN working group's Search interop harness compares results as serialized strings, so the old order failed all 78 of its Subject and Resource Search cases.
+
 ---
 
 ## [v0.9.0] - 2026-10-03
