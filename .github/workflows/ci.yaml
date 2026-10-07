@@ -38,6 +38,18 @@ jobs:
         with:
           version: ${{ steps.tools.outputs.golangci-lint }}
 
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # go.mod's toolchain line is the Go the release binaries are built with,
+      # so the scan runs on it too. golang/govulncheck-action is avoided on
+      # purpose: it defaults to "stable" and its setup-go ignores toolchain.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   e2e:
     runs-on: ubuntu-latest
     steps:
