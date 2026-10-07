@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Release binaries are built with Go 1.26.8. `go.mod` had no `toolchain` line, so the release workflow installed the `go` directive's 1.26.1 verbatim, and the v0.9.0 binaries carry 28 Go standard library vulnerabilities that `govulncheck -mode=binary` can reach (among them GO-2026-5972 in encoding/asn1, GO-2026-6090 in crypto/tls, GO-2026-6089 in net/http and GO-2026-4601 in net/url). `go.mod` now pins `toolchain go1.26.8`; the `go 1.26.1` minimum for building from source is unchanged. The container image was not affected: its `golang:1.26-alpine` builder already resolved to 1.26.8.
+- `golang.org/x/crypto` v0.55.0 → v0.57.0, fixing GO-2026-6354 and GO-2026-6355, both linked into the v0.9.0 binaries. GO-2026-5932 has no fixed version yet and is not called.
+- CI runs `govulncheck` on the same Go the release is built with.
+
 ### Changed
 
 - The draft GitHub Release that a tag push opens now carries the finished body: the release date, that version's CHANGELOG section, and the `cosign` commands that verify its assets and image tag. `build/release-notes.sh` writes it from `CHANGELOG.md` and the tag workflow passes it to GoReleaser, which used to fill the draft with a raw commit list that had to be replaced by hand before publishing. `make release-notes TAG=vX.Y.Z` previews it, and the workflow fails if the version has no `## [vX.Y.Z] - YYYY-MM-DD` section.
