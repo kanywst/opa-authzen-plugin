@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.1] - 2026-10-07
+
+A security rebuild. The v0.9.0 release binaries were built on Go 1.26.1 and linked a vulnerable `golang.org/x/crypto`; this release rebuilds them on Go 1.26.8 with `x/crypto` v0.57.0. It also carries the Search result member-order fix and the release tooling changes merged since v0.9.0. No configuration change is needed to upgrade.
+
 ### Security
 
 - Release binaries are built with Go 1.26.8. `go.mod` had no `toolchain` line, so the release workflow installed the `go` directive's 1.26.1 verbatim, and the v0.9.0 binaries carry 28 Go standard library vulnerabilities that `govulncheck -mode=binary` can reach (among them GO-2026-5972 in encoding/asn1, GO-2026-6090 in crypto/tls, GO-2026-6089 in net/http and GO-2026-4601 in net/url). `go.mod` now pins `toolchain go1.26.8`; the `go 1.26.1` minimum for building from source is unchanged. The container image was not affected: its `golang:1.26-alpine` builder already resolved to 1.26.8.
@@ -24,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Subject and Resource Search results now serialize as `{"type": ..., "id": ...}` followed by any other members in key order, instead of Go's sorted-key order (`{"id": ..., "type": ...}`). Action Search results lead with `name` the same way. JSON member order carries no meaning (RFC 8259 Section 4) and the values are unchanged, but the AuthZEN working group's Search interop harness compares results as serialized strings, so the old order failed all 78 of its Subject and Resource Search cases.
+
+### Compatibility
+
+- Built against OPA v1.21.1, up from v1.21.0 in v0.9.0 (a patch release; see the [OPA v1.21.1 release notes](https://github.com/open-policy-agent/opa/releases/tag/v1.21.1)).
+- The container image `ghcr.io/kanywst/opa-authzen-plugin:0.9.0` was already built on Go 1.26.8 and is not affected by the standard library findings above; the `x/crypto` bump applies to it too.
 
 ---
 
@@ -340,7 +349,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...HEAD
+[v0.9.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.6.1...v0.7.0
