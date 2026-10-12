@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Release binaries are built with Go 1.26.9, fixing 11 Go standard library vulnerabilities reachable from the plugin on Go 1.26.8: GO-2026-6617, GO-2026-6613, GO-2026-6612, GO-2026-6611, GO-2026-6610, GO-2026-6605 and GO-2026-6603 in net/http, GO-2026-6608 in mime/multipart, GO-2026-6607 in crypto/tls, and GO-2026-6600 and GO-2026-6599 in html/template.
+- `golang.org/x/net` v0.58.0 → v0.60.0, fixing GO-2026-6617, GO-2026-6612, GO-2026-6611, GO-2026-6610 and GO-2026-6603.
+
 ## [v0.9.1] - 2026-10-07
 
 A security rebuild. The v0.9.0 release binaries were built on Go 1.26.1 and linked a vulnerable `golang.org/x/crypto`; this release rebuilds them on Go 1.26.8 with `x/crypto` v0.57.0. It also carries the Search result member-order fix and the release tooling changes merged since v0.9.0. No configuration change is needed to upgrade.
