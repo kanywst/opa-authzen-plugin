@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.2] - 2026-10-13
+
+A security rebuild. The v0.9.1 release binaries and container image were built on Go 1.26.8 with `golang.org/x/net` v0.58.0; this release rebuilds both on Go 1.26.9 with `x/net` v0.60.0. There are no functional changes, and no configuration change is needed to upgrade.
+
 ### Security
 
 - Release binaries are built with Go 1.26.9, fixing 11 Go standard library vulnerabilities reachable from the plugin on Go 1.26.8: GO-2026-6617, GO-2026-6613, GO-2026-6612, GO-2026-6611, GO-2026-6610, GO-2026-6605 and GO-2026-6603 in net/http, GO-2026-6608 in mime/multipart, GO-2026-6607 in crypto/tls, and GO-2026-6600 and GO-2026-6599 in html/template.
 - `golang.org/x/net` v0.58.0 → v0.60.0, fixing GO-2026-6617, GO-2026-6612, GO-2026-6611, GO-2026-6610 and GO-2026-6603.
+
+### Compatibility
+
+- Built against OPA v1.21.1, unchanged from v0.9.1.
+- The container image is affected this time, unlike in v0.9.1: `ghcr.io/kanywst/opa-authzen-plugin:0.9.1` was built on Go 1.26.8 by its `golang:1.26-alpine` builder and links `x/net` v0.58.0. The 0.9.2 image is built on Go 1.26.9.
+
+---
 
 ## [v0.9.1] - 2026-10-07
 
@@ -354,7 +365,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...HEAD
+[v0.9.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...v0.9.0
 [v0.8.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.7.0...v0.8.0
