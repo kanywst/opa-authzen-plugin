@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.3] - 2026-10-19
+
+Moves to OPA v1.21.2. No plugin code changes, and no configuration change is needed to upgrade.
+
+### Security
+
+- OPA v1.21.1 → v1.21.2, which fixes the basic authorizer and the Data API resolving `%2F` in a path to different documents ([open-policy-agent/opa#9323](https://github.com/open-policy-agent/opa/issues/9323)).
+
+### Compatibility
+
+- Built against OPA v1.21.2, up from v1.21.1 in v0.9.2. Release binaries stay on Go 1.26.9.
+
+---
+
 ## [v0.9.2] - 2026-10-13
 
 A security rebuild. The v0.9.1 release binaries and container image were built on Go 1.26.8 with `golang.org/x/net` v0.58.0; this release rebuilds both on Go 1.26.9 with `x/net` v0.60.0. There are no functional changes, and no configuration change is needed to upgrade.
@@ -365,7 +379,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.3...HEAD
+[v0.9.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...v0.9.3
 [v0.9.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...v0.9.0
