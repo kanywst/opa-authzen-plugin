@@ -227,7 +227,7 @@ func validateSignedMetadata(cfg *Config) error {
 	// The base64url decoder skips CR and LF, so a JWT wrapped across lines in
 	// the YAML would otherwise pass and be published with the line breaks.
 	if strings.ContainsFunc(cfg.SignedMetadata, func(r rune) bool {
-		return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
+		return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.'
 	}) {
 		return fmt.Errorf("must contain only base64url characters and dots")
 	}
