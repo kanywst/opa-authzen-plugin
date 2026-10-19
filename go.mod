@@ -5,7 +5,7 @@ go 1.26.1
 toolchain go1.26.9
 
 require (
-	github.com/open-policy-agent/opa v1.21.1
+	github.com/open-policy-agent/opa v1.21.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 )
 
