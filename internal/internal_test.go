@@ -3391,3 +3391,48 @@ func TestWellKnownAdvertisesAccessRequestEndpointWithoutJWKS(t *testing.T) {
 		t.Error("expected jwks_uri to be omitted when unconfigured")
 	}
 }
+
+func TestWellKnownOmitsUnsetSignedMetadata(t *testing.T) {
+	p := testPlugin(t, `package authzen`)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := raw["signed_metadata"]; exists {
+		t.Error("expected signed_metadata to be omitted when unconfigured")
+	}
+}
+
+func TestWellKnownAdvertisesSignedMetadata(t *testing.T) {
+	// Section 9.1.3: the JWT is a string member of the plain metadata
+	// document, published alongside the plain values rather than replacing
+	// them, since a PEP MAY ignore it.
+	const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL3BkcC5leGFtcGxlLmNvbSJ9.c2ln"
+	p := testPlugin(t, `package authzen`)
+	p.cfg.SignedMetadata = jwt
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/authzen-configuration", nil)
+	req.Host = "localhost:8181"
+	w := httptest.NewRecorder()
+	p.handleWellKnown(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var metadata pdpMetadata
+	if err := json.Unmarshal(w.Body.Bytes(), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.SignedMetadata != jwt {
+		t.Errorf("signed_metadata = %q, want %q", metadata.SignedMetadata, jwt)
+	}
+	if got, want := metadata.AccessEvaluationEndpoint, "http://localhost:8181/access/v1/evaluation"; got != want {
+		t.Errorf("access_evaluation_endpoint = %q, want %q", got, want)
+	}
+}

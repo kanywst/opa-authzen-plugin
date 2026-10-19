@@ -1,6 +1,9 @@
 package plugin
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kanywst/opa-authzen-plugin/internal"
@@ -252,4 +255,176 @@ func TestValidateCustomPaths(t *testing.T) {
 			t.Errorf("Decision mismatch: got %q, want %q", cfg.Decision, tt.rule)
 		}
 	}
+}
+
+// testJWT builds a compact JWS from the given header and claims. The
+// signature segment is opaque bytes: Validate cannot verify it, only check
+// that one is present.
+func testJWT(t *testing.T, header, claims map[string]any) string {
+	t.Helper()
+	seg := func(v map[string]any) string {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return base64.RawURLEncoding.EncodeToString(b)
+	}
+	return seg(header) + "." + seg(claims) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
+}
+
+func signedMetadataConfig(t *testing.T, extra string, jwt string) []byte {
+	t.Helper()
+	b, err := json.Marshal(jwt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extra != "" {
+		extra += ", "
+	}
+	return []byte(`{` + extra + `"signed_metadata": ` + string(b) + `}`)
+}
+
+func TestValidateSignedMetadata(t *testing.T) {
+	factory := Factory{}
+	hs256 := map[string]any{"alg": "HS256", "typ": "JWT"}
+
+	t.Run("a signed JWT with iss is accepted and trimmed", func(t *testing.T) {
+		jwt := testJWT(t, hs256, map[string]any{"iss": "https://pdp.example.com"})
+		result, err := factory.Validate(nil, signedMetadataConfig(t, "", "  "+jwt+"  "))
+		if err != nil {
+			t.Fatalf("Validate should accept a well-formed signed_metadata: %v", err)
+		}
+		if got := result.(*internal.Config).SignedMetadata; got != jwt {
+			t.Errorf("signed_metadata = %q, want %q", got, jwt)
+		}
+	})
+
+	t.Run("claims that agree with the config are accepted", func(t *testing.T) {
+		jwt := testJWT(t, hs256, map[string]any{
+			"iss":                     "https://pdp.example.com",
+			"capabilities":            []string{"Urn:b", "urn:a"},
+			"supported_obligations":   []string{"step-up"},
+			"access_request_endpoint": "https://requests.example.com/requests",
+			"jwks_uri":                "https://pdp.example.com/jwks",
+			"search_subject_endpoint": "https://pdp.example.com/access/v1/search/subject",
+		})
+		extra := `"capabilities": ["urn:a", "URN:b"], "supported_obligations": ["step-up"], "access_request_endpoint": "https://requests.example.com/requests", "jwks_uri": "https://pdp.example.com/jwks", "search": {"subject": "subjects"}`
+		if _, err := factory.Validate(nil, signedMetadataConfig(t, extra, jwt)); err != nil {
+			t.Fatalf("Validate should accept claims matching the config: %v", err)
+		}
+	})
+
+	t.Run("malformed values are rejected", func(t *testing.T) {
+		claims := map[string]any{"iss": "https://pdp.example.com"}
+		valid := testJWT(t, hs256, claims)
+		parts := strings.Split(valid, ".")
+		for name, tc := range map[string]struct {
+			jwt     string
+			wantErr string
+		}{
+			"two parts":            {parts[0] + "." + parts[1], "three dot-separated parts"},
+			"JWE (five parts)":     {valid + ".x.y", "three dot-separated parts"},
+			"empty signature":      {parts[0] + "." + parts[1] + ".", "no signature"},
+			"signature not b64url": {parts[0] + "." + parts[1] + ".a", "signature"},
+			"embedded newline":     {parts[0] + "\n." + parts[1] + "." + parts[2], "base64url characters"},
+			"padded segment":       {parts[0] + "=." + parts[1] + "." + parts[2], "base64url characters"},
+			"header not b64url":    {"a." + parts[1] + "." + parts[2], "header"},
+			"claims not JSON":      {parts[0] + "." + base64.RawURLEncoding.EncodeToString([]byte("nope")) + "." + parts[2], "claims"},
+			"alg none":             {testJWT(t, map[string]any{"alg": "none"}, claims), "alg"},
+			"alg missing":          {testJWT(t, map[string]any{"typ": "JWT"}, claims), "alg"},
+			"iss missing":          {testJWT(t, hs256, map[string]any{"sub": "x"}), "iss"},
+			"iss empty":            {testJWT(t, hs256, map[string]any{"iss": ""}), "iss"},
+			"nested signed_metadata": {testJWT(t, hs256, map[string]any{
+				"iss": "https://pdp.example.com", "signed_metadata": "a.b.c",
+			}), "signed_metadata claim"},
+		} {
+			_, err := factory.Validate(nil, signedMetadataConfig(t, "", tc.jwt))
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: want an error containing %q, got %v", name, tc.wantErr, err)
+			}
+		}
+	})
+
+	t.Run("claims that disagree with the config are rejected", func(t *testing.T) {
+		// A PEP that supports signed metadata MUST prefer the signed values,
+		// so a mismatch would make it act on something the plugin does not do.
+		for name, tc := range map[string]struct {
+			extra   string
+			claims  map[string]any
+			wantErr string
+		}{
+			"capabilities differ": {
+				`"capabilities": ["urn:a"]`,
+				map[string]any{"capabilities": []string{"urn:b"}},
+				"claim capabilities",
+			},
+			"capabilities signed but unconfigured": {
+				``,
+				map[string]any{"capabilities": []string{"urn:a"}},
+				"claim capabilities",
+			},
+			"capabilities not strings": {
+				`"capabilities": ["urn:a"]`,
+				map[string]any{"capabilities": []any{1}},
+				"array of strings",
+			},
+			"capabilities null": {
+				``,
+				map[string]any{"capabilities": nil},
+				"array of strings",
+			},
+			"supported_obligations differ": {
+				`"supported_obligations": ["step-up"]`,
+				map[string]any{"supported_obligations": []string{"notification"}},
+				"claim supported_obligations",
+			},
+			"access_request_endpoint differs": {
+				`"access_request_endpoint": "https://a.example.com/requests"`,
+				map[string]any{"access_request_endpoint": "https://b.example.com/requests"},
+				"claim access_request_endpoint",
+			},
+			"access_request_endpoint null": {
+				``,
+				map[string]any{"access_request_endpoint": nil},
+				"must be a string",
+			},
+			"jwks_uri signed but unconfigured": {
+				``,
+				map[string]any{"jwks_uri": "https://pdp.example.com/jwks"},
+				"claim jwks_uri",
+			},
+			"jwks_uri not a string": {
+				``,
+				map[string]any{"jwks_uri": 42},
+				"must be a string",
+			},
+			"search endpoint signed but disabled": {
+				``,
+				map[string]any{"search_action_endpoint": "https://pdp.example.com/access/v1/search/action"},
+				"not configured",
+			},
+			"search endpoint not a string": {
+				`"search": {"subject": "subjects"}`,
+				map[string]any{"search_subject_endpoint": 7},
+				"must be a string",
+			},
+		} {
+			tc.claims["iss"] = "https://pdp.example.com"
+			jwt := testJWT(t, hs256, tc.claims)
+			_, err := factory.Validate(nil, signedMetadataConfig(t, tc.extra, jwt))
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: want an error containing %q, got %v", name, tc.wantErr, err)
+			}
+		}
+	})
+
+	t.Run("whitespace-only is normalized to unset", func(t *testing.T) {
+		result, err := factory.Validate(nil, []byte(`{"signed_metadata": "   "}`))
+		if err != nil {
+			t.Fatalf("Validate should treat a blank value as unset: %v", err)
+		}
+		if got := result.(*internal.Config).SignedMetadata; got != "" {
+			t.Errorf("expected a blank value to normalize to unset, got %q", got)
+		}
+	})
 }

@@ -113,6 +113,13 @@ type Config struct {
 	// signed `approval.state` — so an Access Request Service can resolve the
 	// verification key. Empty omits it.
 	JWKSURI string `json:"jwks_uri,omitempty"`
+	// SignedMetadata is advertised as `signed_metadata` in the PDP metadata
+	// document (Section 9.1.3): a JWT, signed or MACed with JWS, asserting
+	// metadata values about the PDP. The plugin holds no key, so the JWT is
+	// signed outside it and supplied as a compact serialization. Validate
+	// checks its shape and its agreement with this config but cannot verify
+	// the signature. Empty omits it.
+	SignedMetadata string `json:"signed_metadata,omitempty"`
 }
 
 // SearchConfig configures the optional Search APIs (Section 8 of the AuthZEN
@@ -198,7 +205,171 @@ func Validate(_ *plugins.Manager, bs []byte) (*Config, error) {
 		*field.value = trimmed
 	}
 
+	cfg.SignedMetadata = strings.TrimSpace(cfg.SignedMetadata)
+	if cfg.SignedMetadata != "" {
+		if err := validateSignedMetadata(&cfg); err != nil {
+			return nil, fmt.Errorf("signed_metadata: %w", err)
+		}
+	}
+
 	return &cfg, nil
+}
+
+// validateSignedMetadata checks the operator-supplied `signed_metadata` JWT
+// (Section 9.1.3). The signature itself cannot be verified without the
+// issuer's key, so this rejects what can be caught locally: a value that is
+// not a JWS, is unsecured, lacks the REQUIRED `iss` claim, or nests
+// `signed_metadata` (which the PEP is RECOMMENDED to reject). Because a PEP
+// that supports signed metadata MUST prefer the signed values, a claim that
+// disagrees with this config is also rejected; the plain document would
+// otherwise say one thing and the PEP would act on another.
+func validateSignedMetadata(cfg *Config) error {
+	// The base64url decoder skips CR and LF, so a JWT wrapped across lines in
+	// the YAML would otherwise pass and be published with the line breaks.
+	if strings.ContainsFunc(cfg.SignedMetadata, func(r rune) bool {
+		return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.'
+	}) {
+		return fmt.Errorf("must contain only base64url characters and dots")
+	}
+	parts := strings.Split(cfg.SignedMetadata, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("must be a JWS compact serialization (three dot-separated parts), got %d parts", len(parts))
+	}
+	if parts[2] == "" {
+		return fmt.Errorf("has no signature; it must be signed or MACed")
+	}
+	if _, err := base64.RawURLEncoding.DecodeString(parts[2]); err != nil {
+		return fmt.Errorf("signature: not base64url: %w", err)
+	}
+
+	var header struct {
+		Alg string `json:"alg"`
+	}
+	if err := decodeJWTSegment(parts[0], &header); err != nil {
+		return fmt.Errorf("header: %w", err)
+	}
+	if header.Alg == "" || strings.EqualFold(header.Alg, "none") {
+		return fmt.Errorf("header alg %q is not a signing or MAC algorithm", header.Alg)
+	}
+
+	var claims map[string]any
+	if err := decodeJWTSegment(parts[1], &claims); err != nil {
+		return fmt.Errorf("claims: %w", err)
+	}
+	if iss, _ := claims["iss"].(string); iss == "" {
+		return fmt.Errorf("must contain a non-empty iss claim")
+	}
+	if _, ok := claims["signed_metadata"]; ok {
+		return fmt.Errorf("must not contain a signed_metadata claim")
+	}
+
+	for _, c := range []struct {
+		name string
+		want []string
+	}{
+		{"capabilities", cfg.Capabilities},
+		{"supported_obligations", cfg.SupportedObligations},
+	} {
+		v, ok := claims[c.name]
+		if !ok {
+			continue
+		}
+		got, ok := stringArray(v)
+		if !ok {
+			return fmt.Errorf("claim %s must be an array of strings", c.name)
+		}
+		if c.name == "capabilities" {
+			// Compare as Validate stored the config: RFC 8141 makes the
+			// "urn:" prefix case-insensitive.
+			for i, g := range got {
+				if strings.HasPrefix(strings.ToLower(g), "urn:") {
+					got[i] = "urn:" + g[4:]
+				}
+			}
+		}
+		if !sameStringSet(got, c.want) {
+			return fmt.Errorf("claim %s is %v but the plugin is configured with %v", c.name, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		want string
+	}{
+		{"access_request_endpoint", cfg.AccessRequestEndpoint},
+		{"jwks_uri", cfg.JWKSURI},
+	} {
+		v, ok := claims[c.name]
+		if !ok {
+			continue
+		}
+		got, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("claim %s must be a string", c.name)
+		}
+		if got != c.want {
+			return fmt.Errorf("claim %s is %q but the plugin is configured with %q", c.name, got, c.want)
+		}
+	}
+	// The search endpoint URLs depend on the request host, so only their
+	// presence can be checked: a signed endpoint for a disabled search would
+	// send PEPs to a 501.
+	for _, c := range []struct {
+		name string
+		rule string
+	}{
+		{"search_subject_endpoint", cfg.Search.Subject},
+		{"search_resource_endpoint", cfg.Search.Resource},
+		{"search_action_endpoint", cfg.Search.Action},
+	} {
+		v, ok := claims[c.name]
+		if !ok {
+			continue
+		}
+		if _, ok := v.(string); !ok {
+			return fmt.Errorf("claim %s must be a string", c.name)
+		}
+		if c.rule == "" {
+			return fmt.Errorf("claim %s is present but that search is not configured", c.name)
+		}
+	}
+	return nil
+}
+
+// decodeJWTSegment decodes one base64url segment of a JWS compact
+// serialization into v.
+func decodeJWTSegment(seg string, v any) error {
+	b, err := base64.RawURLEncoding.DecodeString(seg)
+	if err != nil {
+		return fmt.Errorf("not base64url: %w", err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	return nil
+}
+
+func stringArray(v any) ([]string, bool) {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, len(arr))
+	for i, e := range arr {
+		s, ok := e.(string)
+		if !ok {
+			return nil, false
+		}
+		out[i] = s
+	}
+	return out, true
+}
+
+func sameStringSet(a, b []string) bool {
+	x := slices.Clone(a)
+	y := slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(slices.Compact(x), slices.Compact(y))
 }
 
 // AuthZenPlugin implements the AuthZEN Authorization API on top of OPA.
@@ -324,6 +495,8 @@ type pdpMetadata struct {
 	// Obligations Profile 1.0. Absence is equivalent to an empty array, so a
 	// PDP that supports none simply omits it.
 	SupportedObligations []string `json:"supported_obligations,omitempty"`
+	// Section 9.1.3. Omitted unless configured.
+	SignedMetadata string `json:"signed_metadata,omitempty"`
 }
 
 // AuthZEN Search API request (Section 8.4.1/8.5.1/8.6.1).
@@ -1052,6 +1225,7 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	obligations := p.cfg.SupportedObligations
 	accessRequestEndpoint := p.cfg.AccessRequestEndpoint
 	jwksURI := p.cfg.JWKSURI
+	signedMetadata := p.cfg.SignedMetadata
 	p.mu.RUnlock()
 	if search.Subject != "" {
 		metadata.SearchSubjectEndpoint = base + "/access/v1/search/subject"
@@ -1074,6 +1248,9 @@ func (p *AuthZenPlugin) handleWellKnown(w http.ResponseWriter, r *http.Request) 
 	// because the profile permits a service other than the PDP to host it.
 	metadata.AccessRequestEndpoint = accessRequestEndpoint
 	metadata.JWKSURI = jwksURI
+
+	// Section 9.1.3: published verbatim; Validate has already checked it.
+	metadata.SignedMetadata = signedMetadata
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", metadataCacheControl)
