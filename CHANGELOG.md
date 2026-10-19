@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- New `signed_metadata` config option: publishes a JWT as `signed_metadata` in the PDP metadata document (spec Section 9.1.3). The plugin does not sign it; the JWT is signed outside the plugin and pasted in. Startup fails if the value is not a signed three-part JWS with an `iss` claim, or if its `capabilities`, `supported_obligations`, `access_request_endpoint`, `jwks_uri` or `search_*_endpoint` claims disagree with the config. Unset by default, which leaves the metadata unchanged.
+
 ## [v0.9.3] - 2026-10-19
 
 Moves to OPA v1.21.2. No plugin code changes, and no configuration change is needed to upgrade.

@@ -58,6 +58,7 @@ The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181
 | Section 8 | Search APIs (Subject, Resource, Action) | ✅ Supported (opt-in via `search` config) |
 | Section 8.2 | Search pagination (stateless opaque token) | ✅ Supported |
 | Section 9 | PDP Metadata (`GET /.well-known/authzen-configuration`) | ✅ Supported |
+| Section 9.1.3 | Signed metadata (`signed_metadata`) | ✅ Supported (opt-in; the JWT is signed outside the plugin) |
 | Section 10.1 | HTTPS Transport Binding (JSON serialization, Content-Type validation) | ✅ Supported |
 | Section 10.1.3 | X-Request-ID echo | ✅ Supported |
 | Section 11.7 | Request payload protection (body size limit, batch size limit) | ✅ Supported |
@@ -252,12 +253,15 @@ The plugin is configured under the `plugins.authzen` key in the OPA config file:
 | `supported_obligations` | array | _(unset)_ | Obligation Types advertised in the PDP metadata; also bounds the PEP-declared set on each request |
 | `access_request_endpoint` | string | _(unset)_ | HTTPS URI advertised as `access_request_endpoint` in the PDP metadata (Access Request and Approval Profile) |
 | `jwks_uri`          | string | _(unset)_ | HTTPS URI advertised as `jwks_uri` in the PDP metadata, for verifying signed values issued under that profile |
+| `signed_metadata`   | string | _(unset)_ | Compact JWS advertised as `signed_metadata` in the PDP metadata (spec Section 9.1.3) |
 
 If a `search.*` rule is unset, the corresponding endpoint responds with 501 and is omitted from the PDP metadata (spec Section 9). Each configured rule must be defined in the package given by `path` and return a set/array of entity objects.
 
 When `decision_context` is set, the named rule is evaluated alongside the decision (under the same policy/data snapshot) and its result is returned as the Decision's optional `context` member (spec Section 5.5.1), letting a policy convey reasons, obligations, or other metadata. The rule must evaluate to a JSON object; an undefined result or an empty object omits `context`, and a non-object result fails the request. `decision_context` is unset by default, so responses carry only `decision` unless you opt in.
 
 The AuthZEN core specification registers no capability URNs of its own (the IANA "AuthZEN Policy Decision Point Capabilities" registry is populated by profiles and vendors), so `capabilities` is operator-supplied. Each entry must be a URN (start with `urn:`); the list is omitted from the metadata when empty. A deployment running the [Access Request and Approval profile](https://openid.github.io/authzen/authzen-access-request-approval-profile-1_0.html) advertises `urn:openid:authzen:capability:access-request` here — see [below](#access-request-and-approval-profile).
+
+`signed_metadata` is a JWT that asserts PDP metadata values as claims, signed or MACed with JWS and carrying an `iss` claim (spec Section 9.1.3). A PEP that supports it must prefer the signed values over the plain ones. The plugin holds no key and does not sign it: sign the JWT outside the plugin and paste the compact serialization into the config. At startup the plugin rejects a value that is not a three-part base64url JWS on one line, has no signature, has a missing or `none` `alg`, has a missing or empty `iss`, or contains a `signed_metadata` claim. It also rejects claims that disagree with the config: `capabilities` and `supported_obligations` must be string arrays holding the configured values, `access_request_endpoint` and `jwks_uri` must be the configured strings, and a `search_*_endpoint` claim must be a string and requires that search to be configured. The signature itself is not verified. Endpoint URLs in the plain document are built from the request's `Host` and `X-Forwarded-*` headers, so a PEP that needs them pinned should read them from the signed claims.
 
 ### Obligations Profile
 

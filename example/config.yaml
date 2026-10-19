@@ -32,3 +32,7 @@ plugins:
     # denial, and list the capability URN above.
     # access_request_endpoint: "https://requests.example.com/access/v1/requests"
     # jwks_uri: "https://requests.example.com/access/v1/jwks"
+    # Optional: a JWT asserting the PDP metadata, published as `signed_metadata`
+    # (spec Section 9.1.3). Sign it outside the plugin; it must carry `iss`, and
+    # any claim that mirrors a setting above must match that setting.
+    # signed_metadata: "<header>.<claims>.<signature>"
