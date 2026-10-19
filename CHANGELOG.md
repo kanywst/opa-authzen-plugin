@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.9.3] - 2026-10-19
+
+A security update for the OPA server underneath the plugin. This release moves to OPA v1.21.2, which fixes how OPA's built-in server resolves encoded slashes in request paths. The plugin code is unchanged, every AuthZEN endpoint behaves identically, and no configuration change is needed to upgrade.
+
+### Security
+
+- OPA v1.21.1 → v1.21.2 ([open-policy-agent/opa#9330](https://github.com/open-policy-agent/opa/pull/9330), fixing [open-policy-agent/opa#9323](https://github.com/open-policy-agent/opa/issues/9323)). With `--authorization=basic`, the authorizer split a percent-encoded slash (`%2F`) in a Data API path into separate segments, while the Data API kept it inside a single key. A request to `/v1/data/a%2Fb` was therefore authorized as `input.path == ["v1", "data", "a", "b"]` but read or wrote the distinct document `data["a/b"]`. A deployment is exposed if it runs the binary with basic authorization, its authorization policy allows by path, and its data holds keys that contain a literal `/`. Both sides now resolve encoded paths the same way.
+
+### Compatibility
+
+- Built against OPA v1.21.2, up from v1.21.1 in v0.9.2 (a patch release; see the [OPA v1.21.2 release notes](https://github.com/open-policy-agent/opa/releases/tag/v1.21.2)). OPA v1.21.2 also moves its own builds to Go 1.27.2; this plugin's binaries stay on Go 1.26.9, the latest 1.26 patch, and the `go 1.26.1` minimum for building from source is unchanged.
+
+---
+
 ## [v0.9.2] - 2026-10-13
 
 A security rebuild. The v0.9.1 release binaries and container image were built on Go 1.26.8 with `golang.org/x/net` v0.58.0; this release rebuilds both on Go 1.26.9 with `x/net` v0.60.0. There are no functional changes, and no configuration change is needed to upgrade.
@@ -365,7 +379,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.3...HEAD
+[v0.9.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...v0.9.3
 [v0.9.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.8.0...v0.9.0
