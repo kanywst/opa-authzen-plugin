@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Release binaries are built with Go 1.26.10, fixing GO-2026-6809 in crypto/x509, which is reachable from the plugin on Go 1.26.9.
+- OPA v1.21.2 → v1.21.3, which fixes bundle signature verification being side-stepped when `signing` is configured without a `keyid`, or by an unsigned delta bundle ([GHSA-g2pf-6v5v-qcc8](https://github.com/open-policy-agent/opa/security/advisories/GHSA-g2pf-6v5v-qcc8)).
+
+### Compatibility
+
+- Built against OPA v1.21.3, up from v1.21.2 in v0.9.3.
 
 ## [v0.9.3] - 2026-10-19
 
