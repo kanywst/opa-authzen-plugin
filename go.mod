@@ -2,7 +2,7 @@ module github.com/kanywst/opa-authzen-plugin
 
 go 1.26.1
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/open-policy-agent/opa v1.21.2
