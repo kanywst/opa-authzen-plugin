@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The interop Todo PDP (policy, data, config and e2e suite) now lives in `interop/todo/` instead of the separate `kanywst/opa-authzen-interop` repository. `make test-interop` runs it against the locally built image without cloning anything, `make test-harness` serves its policy from the working tree instead of a pinned commit, and the new `make test-interop-rego` checks, formats and unit-tests the policy with the OPA the plugin links. The suite comes over already tracking v0.10.0, including an assertion on `signed_metadata`.
+
 ## [v0.10.0] - 2026-10-26
 
 Adds the `signed_metadata` config option, and rebuilds on Go 1.26.10 and OPA v1.21.3 for two security fixes. No configuration change is needed to upgrade.

@@ -21,7 +21,8 @@ make clean          # Remove build artifacts
 make release        # GoReleaser snapshot build into dist/ (no publish, no signing)
 make docker-build   # Build Docker image
 make docker-run     # Run in Docker with example config
-make test-interop   # E2E tests via opa-authzen-interop (clones external repo)
+make test-interop   # E2E tests of interop/todo against the locally built image
+make test-interop-rego  # Check, fmt, and unit-test interop/todo's policy with the plugin's OPA
 make test-contract  # Check against the published AuthZEN JSON Schemas (fetched at a pinned commit)
 make test-harness   # Run the AuthZEN working group's interop Todo and Search harnesses (needs node + yarn)
 ```

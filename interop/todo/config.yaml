@@ -1,0 +1,31 @@
+plugins:
+  authzen:
+    path: "authzen"
+    decision: "allow"
+    # Returned as the Decision's optional `context` member (spec Section 5.5.1).
+    decision_context: "decision_context"
+    # AuthZEN Search APIs (spec Section 8). Each field names a Rego rule in
+    # the `authzen` package that returns the set of permitted entities for
+    # a partial input. Omit a field to disable the corresponding endpoint.
+    search:
+      subject: "subject_search"
+      resource: "resource_search"
+      action: "action_search"
+    # Operator-supplied PDP capability URNs (spec Section 9.1.2); the AuthZEN
+    # core registers none of its own.
+    capabilities:
+      - "urn:kanywst:authzen:capability:todo-interop"
+    # Access Request and Approval Profile 1.0 discovery members. Nothing is
+    # actually served at these URIs: the profile lets a service other than the
+    # PDP host the Access Request Endpoint, and this harness only asserts that
+    # the PDP advertises what it was configured with.
+    access_request_endpoint: "https://requests.example.com/access/v1/requests"
+    jwks_uri: "https://requests.example.com/access/v1/jwks"
+    # Signed metadata (spec Section 9.1.3). An HS256 fixture over a throwaway
+    # key: the plugin checks the JWS shape and that its claims agree with the
+    # config above, but never verifies the signature.
+    signed_metadata: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3BkcC5leGFtcGxlLmNvbSIsImNhcGFiaWxpdGllcyI6WyJ1cm46a2FueXdzdDphdXRoemVuOmNhcGFiaWxpdHk6dG9kby1pbnRlcm9wIl0sInN1cHBvcnRlZF9vYmxpZ2F0aW9ucyI6WyJub3RpZmljYXRpb24iXSwiYWNjZXNzX3JlcXVlc3RfZW5kcG9pbnQiOiJodHRwczovL3JlcXVlc3RzLmV4YW1wbGUuY29tL2FjY2Vzcy92MS9yZXF1ZXN0cyIsImp3a3NfdXJpIjoiaHR0cHM6Ly9yZXF1ZXN0cy5leGFtcGxlLmNvbS9hY2Nlc3MvdjEvandrcyJ9.xbFHEIdtzx8huMEAPaaQBp3Uq_ehnL4ucbSePJagNFU"
+    # Obligations Profile 1.0. Also bounds the PEP's declared
+    # `context.supported_obligations`, so list only what the policy issues.
+    supported_obligations:
+      - "notification"

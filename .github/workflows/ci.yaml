@@ -54,6 +54,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Interop Todo policy check, fmt, and unit tests
+        run: make test-interop-rego
       - name: Basic smoke and e2e test with interop
         run: make test-interop
 

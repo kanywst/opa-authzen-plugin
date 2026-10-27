@@ -1,0 +1,20 @@
+{
+  "todos": {
+    "7240d0db-8ff0-41ec-98b2-34a096273b92": {
+      "title": "Build the Citadel of Ricks",
+      "ownerID": "rick@the-citadel.com"
+    },
+    "7240d0db-8ff0-41ec-98b2-34a096273b91": {
+      "title": "Save Morty from another dimension",
+      "ownerID": "morty@the-citadel.com"
+    },
+    "7240d0db-8ff0-41ec-98b2-34a096273b93": {
+      "title": "Get a perfect SAT score",
+      "ownerID": "summer@the-smiths.com"
+    },
+    "7240d0db-8ff0-41ec-98b2-34a096273b94": {
+      "title": "Operate on a horse",
+      "ownerID": "beth@the-smiths.com"
+    }
+  }
+}
