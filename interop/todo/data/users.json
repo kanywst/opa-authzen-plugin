@@ -1,0 +1,29 @@
+{
+  "users": {
+    "CiRmZDA2MTRkMy1jMzlhLTQ3ODEtYjdiZC04Yjk2ZjVhNTEwMGQSBWxvY2Fs": {
+      "name": "Rick Sanchez",
+      "email": "rick@the-citadel.com",
+      "roles": ["admin", "evil_genius"]
+    },
+    "CiRmZDE2MTRkMy1jMzlhLTQ3ODEtYjdiZC04Yjk2ZjVhNTEwMGQSBWxvY2Fs": {
+      "name": "Morty Smith",
+      "email": "morty@the-citadel.com",
+      "roles": ["editor"]
+    },
+    "CiRmZDI2MTRkMy1jMzlhLTQ3ODEtYjdiZC04Yjk2ZjVhNTEwMGQSBWxvY2Fs": {
+      "name": "Summer Smith",
+      "email": "summer@the-smiths.com",
+      "roles": ["editor"]
+    },
+    "CiRmZDM2MTRkMy1jMzlhLTQ3ODEtYjdiZC04Yjk2ZjVhNTEwMGQSBWxvY2Fs": {
+      "name": "Beth Smith",
+      "email": "beth@the-smiths.com",
+      "roles": ["viewer"]
+    },
+    "CiRmZDQ2MTRkMy1jMzlhLTQ3ODEtYjdiZC04Yjk2ZjVhNTEwMGQSBWxvY2Fs": {
+      "name": "Jerry Smith",
+      "email": "jerry@the-smiths.com",
+      "roles": ["viewer"]
+    }
+  }
+}

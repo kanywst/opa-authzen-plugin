@@ -1,0 +1,16 @@
+services:
+  pdp:
+    image: ${PDP_IMAGE:-ghcr.io/kanywst/opa-authzen-plugin}:${PDP_VERSION:-0.10}
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./config.yaml:/config.yaml:ro
+      - ./policy:/policy:ro
+      - ./data:/data:ro
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --config-file=/config.yaml
+      - /policy/
+      - /data/

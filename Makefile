@@ -25,7 +25,7 @@ release:
 .PHONY: clean
 clean:
 	rm -f $(BIN)
-	rm -rf dist .authzen-spec .authzen-interop
+	rm -rf dist .authzen-spec
 
 .PHONY: fmt
 fmt:
@@ -82,8 +82,6 @@ docker-run:
 # openid/authzen has no license, so its artifacts are fetched, not vendored.
 AUTHZEN_SPEC_REF ?= 6ed00bad5daa8f6eef6f2aef1f124442beeb8382
 AUTHZEN_SPEC_DIR := .authzen-spec
-AUTHZEN_INTEROP_REF ?= 0822942b4d849932ee70b93b6ebad0abc553738a
-AUTHZEN_INTEROP_DIR := .authzen-interop
 
 .PHONY: authzen-spec
 authzen-spec:
@@ -98,15 +96,18 @@ test-contract: authzen-spec
 # Needs node and yarn.
 .PHONY: test-harness
 test-harness: build authzen-spec
-	@build/fetch-sparse.sh https://github.com/kanywst/opa-authzen-interop.git $(AUTHZEN_INTEROP_REF) $(AUTHZEN_INTEROP_DIR) \
-		/policy/ /data/
-	build/run-todo-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR) $(AUTHZEN_INTEROP_DIR)
+	build/run-todo-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR) interop/todo
 	build/run-search-harness.sh ./$(BIN) $(AUTHZEN_SPEC_DIR)
 
 .PHONY: test-interop
 test-interop: docker-build
-	@echo "==> Running opa-authzen-interop E2E tests"
-	@rm -rf .interop-test
-	@git clone --depth 1 https://github.com/kanywst/opa-authzen-interop.git .interop-test
-	@$(MAKE) -C .interop-test integration-test PDP_IMAGE=$(IMAGE) PDP_VERSION=$(DOCKER_VERSION)
-	@rm -rf .interop-test
+	@echo "==> Running interop Todo E2E tests"
+	@$(MAKE) -C interop/todo integration-test PDP_IMAGE=$(IMAGE) PDP_VERSION=$(DOCKER_VERSION)
+
+# Checks the interop policy with the OPA this plugin links, so an OPA bump
+# that breaks it fails here.
+.PHONY: test-interop-rego
+test-interop-rego: build
+	./$(BIN) check interop/todo/policy/ interop/todo/data/
+	./$(BIN) fmt --fail --diff interop/todo/policy/
+	./$(BIN) test interop/todo/policy/ interop/todo/data/ -v
