@@ -36,6 +36,7 @@ This project currently uses [Semantic Versioning](https://semver.org/spec/v2.0.0
    - Move "Unreleased" section content to new version heading
    - Follow [Keep a Changelog](https://keepachangelog.com/) format
    - Include OPA version compatibility note
+   - Set `newTag` in `example/kubernetes/kustomization.yaml` to the new version (without the `v`)
    - The heading must read `## [vX.Y.Z] - YYYY-MM-DD`: the tag workflow builds the release body from that section, and fails if it cannot find it. Preview the body with `make release-notes TAG=vX.Y.Z`
 
 5. **Dry-run the release locally (optional)**

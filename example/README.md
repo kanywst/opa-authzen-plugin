@@ -10,6 +10,7 @@ This directory contains example configuration and policy files for opa-authzen-p
 | [todo/](./todo/)                   | AuthZEN Interop Todo scenario (RBAC + resource ownership) |
 | [abac/](./abac/)                   | Attribute-Based Access Control (clearance, department)    |
 | [envoy-gateway/](./envoy-gateway/) | Envoy proxy + AuthZEN PDP integration (docker compose)    |
+| [kubernetes/](./kubernetes/)       | Deployment + Service with kustomize, smoke-tested on kind |
 
 ## Files
 

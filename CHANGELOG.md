@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `example/kubernetes/`: a Deployment and Service for the published image, applied with `kubectl apply -k`, with the plugin config and policy in a generated ConfigMap. `example/kubernetes/test.sh` runs it on a kind cluster against an image built from the checkout.
+
 ## [v0.11.0] - 2026-11-03
 
 Moves to OPA v1.22.0, which carries two breaking changes that reach users of the plugin binary (signed bundles, and Rego containing non-breaking spaces). No plugin code changes, and no plugin configuration change is needed to upgrade.
