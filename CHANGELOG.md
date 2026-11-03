@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.11.0] - 2026-11-03
+
+Moves to OPA v1.22.0, which carries two breaking changes that reach users of the plugin binary (signed bundles, and Rego containing non-breaking spaces). No plugin code changes, and no plugin configuration change is needed to upgrade.
+
 ### Changed
 
 - The interop Todo PDP (policy, data, config and e2e suite) now lives in `interop/todo/` instead of the separate `kanywst/opa-authzen-interop` repository. `make test-interop` runs it against the locally built image without cloning anything, `make test-harness` serves its policy from the working tree instead of a pinned commit, and the new `make test-interop-rego` checks, formats and unit-tests the policy with the OPA the plugin links. The suite comes over already tracking v0.10.0, including an assertion on `signed_metadata`.
+
+### Compatibility
+
+- Built against OPA v1.22.0, up from v1.21.3 in v0.10.0. OPA now locates the bundle signatures file by its exact name `.signatures.json` and signs every other file ending in `signatures.json` ([open-policy-agent/opa#9300](https://github.com/open-policy-agent/opa/pull/9300)). Signed bundles that contain such a file must be re-signed with OPA v1.22.0 or later, or they fail verification. Bundles without such files keep verifying.
+- The Rego scanner now rejects non-breaking spaces (U+00A0) as illegal characters ([open-policy-agent/opa#5796](https://github.com/open-policy-agent/opa/issues/5796)). A policy that has one, typically pasted from a web page or a document, fails to load until it is replaced with a regular space.
+
+---
 
 ## [v0.10.0] - 2026-10-26
 
@@ -402,7 +413,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.11.0...HEAD
+[v0.11.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.3...v0.10.0
 [v0.9.3]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.2...v0.9.3
 [v0.9.2]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.1...v0.9.2
