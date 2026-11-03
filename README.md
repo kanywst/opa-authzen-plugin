@@ -234,6 +234,8 @@ docker run --rm -p 8181:8181 -v "$PWD/example:/example:ro" \
   run --server --addr 0.0.0.0:8181 --config-file /example/config.yaml /example/policy.rego
 ```
 
+For Kubernetes, [`example/kubernetes/`](./example/kubernetes/) has a Deployment and Service you can apply with `kubectl apply -k`.
+
 Images and release binaries are signed with Sigstore keyless signing and ship with an SBOM. See [RELEASE.md](RELEASE.md#verifying-a-release) for the verification commands.
 
 ## Configuration
