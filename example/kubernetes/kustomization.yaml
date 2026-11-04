@@ -16,4 +16,4 @@ configMapGenerator:
 
 images:
   - name: ghcr.io/kanywst/opa-authzen-plugin
-    newTag: "0.11.0"
+    newTag: "0.12.0"
