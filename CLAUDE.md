@@ -59,6 +59,7 @@ Three-layer structure with a thin public API:
 - **`cmd/opa-authzen-plugin/main.go`** — Entry point. Registers the plugin factory with OPA's runtime, then delegates to OPA's root command. This binary *is* OPA with the AuthZEN plugin compiled in.
 - **`plugin/plugin.go`** — Public plugin interface. Exports `PluginName` and `Factory` (implements `plugins.Factory`). Thin wrapper that delegates to `internal`.
 - **`internal/internal.go`** — All plugin logic: config parsing, HTTP handlers for evaluation/evaluations/well-known endpoints, OPA policy evaluation via `rego.New()`, batch semantics (execute_all, deny_on_first_deny, permit_on_first_permit), request validation, and field merging for batch defaults (Section 7.1.1).
+- **`internal/decision_log.go`** — Writes each evaluated decision to OPA's decision log (`logs.Lookup`), since OPA's server does not log `ExtraRoute` handlers. A no-op when `decision_logs` is not configured.
 
 The `plugin` package exists so users can import the factory without depending on internal implementation details.
 
