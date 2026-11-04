@@ -13,6 +13,8 @@ import (
 	"github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/plugins/logs"
 	"github.com/open-policy-agent/opa/v1/storage"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // decisionSink is a decision log backend (decision_logs.plugin) that keeps
@@ -417,5 +419,135 @@ func TestDecisionLogPath(t *testing.T) {
 		if got := decisionLogPath(tt.path, tt.rule); got != tt.want {
 			t.Errorf("decisionLogPath(%q, %q) = %q, want %q", tt.path, tt.rule, got, tt.want)
 		}
+	}
+}
+
+func TestDecisionLogMetrics(t *testing.T) {
+	p := testPlugin(t, decisionLogModule)
+	p.cfg.DecisionContext = "reasons"
+	sink := withDecisionLogs(t, p, "")
+
+	postEvaluation(p, decisionLogRequest)
+	postEvaluations(p, `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [
+			{"subject": {"type": "user", "id": "alice"}},
+			{"subject": {"type": "user", "id": "bob"}}
+		]
+	}`)
+
+	events := sink.logged()
+	if len(events) != 3 {
+		t.Fatalf("expected 3 decision log events, got %d", len(events))
+	}
+	for i, e := range events {
+		if _, ok := e.Metrics["timer_rego_query_eval_ns"]; !ok {
+			t.Errorf("event %d: metrics %v, want timer_rego_query_eval_ns", i, e.Metrics)
+		}
+	}
+}
+
+const ndbModule = `
+	package authzen
+	default allow = false
+	allow if time.now_ns() > 0
+	reasons := {"now": time.now_ns()}
+`
+
+// The decision and decision context rules share one ND builtin cache.
+func TestDecisionLogNDBuiltinCache(t *testing.T) {
+	p := testPlugin(t, ndbModule)
+	p.cfg.DecisionContext = "reasons"
+	p.manager.Config.NDBuiltinCache = true
+	sink := withDecisionLogs(t, p, "")
+
+	w := postEvaluation(p, decisionLogRequest)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Context struct {
+			Now json.Number `json:"now"`
+		} `json:"context"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(w.Body.Bytes()))
+	dec.UseNumber()
+	if err := dec.Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+
+	events := sink.logged()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 decision log event, got %d", len(events))
+	}
+	if events[0].NDBuiltinCache == nil {
+		t.Fatal("nd_builtin_cache: not logged")
+	}
+	ndb, err := json.Marshal(*events[0].NDBuiltinCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"time.now_ns":{"[]":` + resp.Context.Now.String() + `}}`; string(ndb) != want {
+		t.Errorf("nd_builtin_cache: got %s, want %s", ndb, want)
+	}
+}
+
+func TestDecisionLogNDBuiltinCacheDisabled(t *testing.T) {
+	p := testPlugin(t, ndbModule)
+	sink := withDecisionLogs(t, p, "")
+
+	postEvaluation(p, decisionLogRequest)
+
+	events := sink.logged()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 decision log event, got %d", len(events))
+	}
+	if events[0].NDBuiltinCache != nil {
+		t.Errorf("nd_builtin_cache: got %v, want none without nd_builtin_cache", *events[0].NDBuiltinCache)
+	}
+}
+
+func TestDecisionLogSpanDecisionID(t *testing.T) {
+	p := testPlugin(t, decisionLogModule)
+	sink := withDecisionLogs(t, p, "")
+	recorder := tracetest.NewSpanRecorder()
+	tracer := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder)).Tracer("test")
+
+	serve := func(handler http.HandlerFunc, target, body string) {
+		ctx, span := tracer.Start(context.Background(), target)
+		req := httptest.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		handler(httptest.NewRecorder(), req)
+		span.End()
+	}
+	serve(p.handleEvaluation, "/access/v1/evaluation", decisionLogRequest)
+	serve(p.handleEvaluations, "/access/v1/evaluations", `{
+		"action": {"name": "read"},
+		"resource": {"type": "doc", "id": "1"},
+		"evaluations": [{"subject": {"type": "user", "id": "alice"}}]
+	}`)
+
+	events := sink.logged()
+	spans := recorder.Ended()
+	if len(events) != 2 || len(spans) != 2 {
+		t.Fatalf("expected 2 events and 2 spans, got %d and %d", len(events), len(spans))
+	}
+	spanDecisionID := func(s sdktrace.ReadOnlySpan) string {
+		for _, kv := range s.Attributes() {
+			if kv.Key == otelDecisionIDAttr {
+				return kv.Value.AsString()
+			}
+		}
+		return ""
+	}
+	if got := spanDecisionID(spans[0]); got != events[0].DecisionID {
+		t.Errorf("evaluation span: opa.decision_id %q, want %q", got, events[0].DecisionID)
+	}
+	if events[0].TraceID != spans[0].SpanContext().TraceID().String() {
+		t.Errorf("trace_id: got %q, want the span's %q", events[0].TraceID, spans[0].SpanContext().TraceID())
+	}
+	if got := spanDecisionID(spans[1]); got != "" {
+		t.Errorf("batch span: opa.decision_id %q, want none", got)
 	}
 }

@@ -876,20 +876,20 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 
 	path, decisionRule, ctxRule, obligations := p.configSnapshot()
 	applyObligationNegotiation(input, obligations)
-	dl := p.newDecisionLog(r, txn, path, decisionRule)
+	ev := p.newDecisionLog(r, txn, path, decisionRule).begin()
 
-	decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
+	decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule, ev.regoOptions()...)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN evaluation error")
-		dl.log(input, nil, err)
+		ev.log(input, nil, err)
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
 
-	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
+	decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule, ev.regoOptions()...)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
-		dl.log(input, nil, err)
+		ev.log(input, nil, err)
 		jsonError(w, "evaluation failed", http.StatusInternalServerError)
 		return
 	}
@@ -900,7 +900,7 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 		Decision: decision,
 		Context:  decisionCtx,
 	}
-	dl.log(input, resp, nil)
+	ev.log(input, resp, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -911,8 +911,8 @@ func (p *AuthZenPlugin) handleEvaluation(w http.ResponseWriter, r *http.Request)
 // evalDecision evaluates the configured decision rule under the given package
 // path and returns the boolean decision. Path and rule come from a single
 // configSnapshot.
-func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (bool, error) {
-	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule)
+func (p *AuthZenPlugin) evalDecision(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string, opts ...func(*rego.Rego)) (bool, error) {
+	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule, opts...)
 	if err != nil {
 		return false, err
 	}
@@ -937,12 +937,12 @@ func (p *AuthZenPlugin) configSnapshot() (path, decisionRule, contextRule string
 // The spec requires `context` to be an object, so a non-object result is
 // reported as an error. Shares the caller's transaction and configSnapshot
 // with the decision evaluation.
-func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (json.RawMessage, error) {
+func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string, opts ...func(*rego.Rego)) (json.RawMessage, error) {
 	if rule == "" {
 		return nil, nil
 	}
 
-	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule)
+	val, err := p.evalRuleWithTxn(ctx, txn, input, path, rule, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -963,7 +963,7 @@ func (p *AuthZenPlugin) evalDecisionContext(ctx context.Context, txn storage.Tra
 // path and returns the raw value. Used by both the Access Evaluation and
 // Search handlers. An optional existing transaction may be passed; if nil,
 // a fresh one is created and aborted on return.
-func (p *AuthZenPlugin) evalRuleWithTxn(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string) (any, error) {
+func (p *AuthZenPlugin) evalRuleWithTxn(ctx context.Context, txn storage.Transaction, input map[string]any, path, rule string, opts ...func(*rego.Rego)) (any, error) {
 	var err error
 	if txn == nil {
 		txn, err = p.manager.Store.NewTransaction(ctx, storage.TransactionParams{})
@@ -975,13 +975,13 @@ func (p *AuthZenPlugin) evalRuleWithTxn(ctx context.Context, txn storage.Transac
 
 	queryPath := fmt.Sprintf("data.%s.%s", strings.ReplaceAll(path, "/", "."), rule)
 
-	r := rego.New(
+	r := rego.New(append([]func(*rego.Rego){
 		rego.Compiler(p.manager.GetCompiler()),
 		rego.Store(p.manager.Store),
 		rego.Transaction(txn),
 		rego.Input(input),
 		rego.Query(queryPath),
-	)
+	}, opts...)...)
 
 	rs, err := r.Eval(ctx)
 	if err != nil {
@@ -1052,23 +1052,23 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 
 		path, decisionRule, ctxRule, obligations := p.configSnapshot()
 		applyObligationNegotiation(input, obligations)
-		dl := p.newDecisionLog(r, txn, path, decisionRule)
-		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
+		ev := p.newDecisionLog(r, txn, path, decisionRule).begin()
+		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule, ev.regoOptions()...)
 		if err != nil {
 			p.logger.Error("AuthZEN evaluation error: path=%s.%s error=%v", path, decisionRule, err)
-			dl.log(input, nil, err)
+			ev.log(input, nil, err)
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
 			return
 		}
-		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule, ev.regoOptions()...)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN decision context error")
-			dl.log(input, nil, err)
+			ev.log(input, nil, err)
 			jsonError(w, "evaluation failed", http.StatusInternalServerError)
 			return
 		}
 		resp := evaluationResponse{Decision: decision, Context: decisionCtx}
-		dl.log(input, resp, nil)
+		ev.log(input, resp, nil)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			p.logger.Error("AuthZEN evaluations: failed to encode response: %v", err)
@@ -1137,11 +1137,12 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 			continue
 		}
 		applyObligationNegotiation(input, obligations)
+		ev := dl.begin()
 
-		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule)
+		decision, err := p.evalDecision(r.Context(), txn, input, path, decisionRule, ev.regoOptions()...)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "decision_rule": decisionRule, "error": err}).Error("AuthZEN batch evaluation error")
-			dl.log(input, nil, err)
+			ev.log(input, nil, err)
 			results = append(results, evalErrorResponse(500, "evaluation failed"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
@@ -1157,7 +1158,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 				Decision: false,
 				Context:  json.RawMessage(`{"code":"200","reason":"deny_on_first_deny"}`),
 			}
-			dl.log(input, result, nil)
+			ev.log(input, result, nil)
 			results = append(results, result)
 			break
 		}
@@ -1166,7 +1167,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 				Decision: true,
 				Context:  json.RawMessage(`{"code":"200","reason":"permit_on_first_permit"}`),
 			}
-			dl.log(input, result, nil)
+			ev.log(input, result, nil)
 			results = append(results, result)
 			break
 		}
@@ -1174,10 +1175,10 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		// Surface the optional policy-supplied decision context (Section
 		// 5.5.1) on non-short-circuit results. Short-circuit results above
 		// carry the plugin's own reason context instead.
-		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule)
+		decisionCtx, err := p.evalDecisionContext(r.Context(), txn, input, path, ctxRule, ev.regoOptions()...)
 		if err != nil {
 			p.logger.WithFields(map[string]any{"path": path, "error": err}).Error("AuthZEN batch decision context error")
-			dl.log(input, nil, err)
+			ev.log(input, nil, err)
 			results = append(results, evalErrorResponse(500, "evaluation failed"))
 			if semantic == semanticDenyOnFirstDeny {
 				break
@@ -1186,7 +1187,7 @@ func (p *AuthZenPlugin) handleEvaluations(w http.ResponseWriter, r *http.Request
 		}
 
 		result := evaluationResponse{Decision: decision, Context: decisionCtx}
-		dl.log(input, result, nil)
+		ev.log(input, result, nil)
 		results = append(results, result)
 	}
 
@@ -1376,12 +1377,12 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		return
 	}
 	defer p.manager.Store.Abort(r.Context(), txn)
-	dl := p.newDecisionLog(r, txn, path, ruleName)
+	ev := p.newDecisionLog(r, txn, path, ruleName).begin()
 
-	raw, err := p.evalRuleWithTxn(r.Context(), txn, input, path, ruleName)
+	raw, err := p.evalRuleWithTxn(r.Context(), txn, input, path, ruleName, ev.regoOptions()...)
 	if err != nil {
 		p.logger.WithFields(map[string]any{"path": path, "rule": ruleName, "error": err}).Error("AuthZEN search error")
-		dl.log(input, nil, err)
+		ev.log(input, nil, err)
 		jsonError(w, "search evaluation failed", http.StatusInternalServerError)
 		return
 	}
@@ -1389,7 +1390,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 	entities, errMsg := normaliseSearchResults(raw, kind)
 	if errMsg != "" {
 		p.logger.WithFields(map[string]any{"path": path, "rule": ruleName, "error": errMsg}).Error("AuthZEN search: invalid policy result")
-		dl.log(input, nil, errors.New(errMsg))
+		ev.log(input, nil, errors.New(errMsg))
 		jsonError(w, "search evaluation failed", http.StatusInternalServerError)
 		return
 	}
@@ -1429,7 +1430,7 @@ func (p *AuthZenPlugin) handleSearch(w http.ResponseWriter, r *http.Request, kin
 		"returned": pageCount,
 		"offset":   offset,
 	}).Debug("AuthZEN search")
-	dl.log(input, resp, nil)
+	ev.log(input, resp, nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {

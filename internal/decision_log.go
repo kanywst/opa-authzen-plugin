@@ -7,12 +7,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/logging"
+	"github.com/open-policy-agent/opa/v1/metrics"
 	"github.com/open-policy-agent/opa/v1/plugins/logs"
+	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/server"
 	"github.com/open-policy-agent/opa/v1/storage"
+	"github.com/open-policy-agent/opa/v1/topdown/builtins"
 	"github.com/open-policy-agent/opa/v1/util"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -22,13 +27,14 @@ import (
 // this does it in their place. A nil *decisionLog logs nothing, which is what
 // newDecisionLog returns when the `decision_logs` plugin is not configured.
 type decisionLog struct {
-	logs    *logs.Plugin
-	r       *http.Request
-	txn     storage.Transaction
-	path    string
-	bundles map[string]server.BundleInfo
-	batchID string
-	logger  logging.Logger
+	logs     *logs.Plugin
+	r        *http.Request
+	txn      storage.Transaction
+	path     string
+	bundles  map[string]server.BundleInfo
+	batchID  string
+	ndbCache bool
+	logger   logging.Logger
 }
 
 // newDecisionLog returns the decision log for a request that evaluates rule
@@ -42,12 +48,13 @@ func (p *AuthZenPlugin) newDecisionLog(r *http.Request, txn storage.Transaction,
 		return nil
 	}
 	return &decisionLog{
-		logs:    plugin,
-		r:       r,
-		txn:     txn,
-		path:    decisionLogPath(path, rule),
-		bundles: bundleRevisions(r.Context(), p.manager.Store, txn),
-		logger:  p.logger,
+		logs:     plugin,
+		r:        r,
+		txn:      txn,
+		path:     decisionLogPath(path, rule),
+		bundles:  bundleRevisions(r.Context(), p.manager.Store, txn),
+		ndbCache: p.manager.GetConfig().NDBuiltinCacheEnabled(),
+		logger:   p.logger,
 	}
 }
 
@@ -61,13 +68,47 @@ func (l *decisionLog) forBatch() *decisionLog {
 	return l
 }
 
-// log records one decision: the input the rule was evaluated with and the
+// decisionEval holds the metrics and ND builtin cache of one decision, shared
+// by its decision and decision context evaluations. A nil *decisionEval logs
+// nothing.
+type decisionEval struct {
+	dl  *decisionLog
+	m   metrics.Metrics
+	ndb builtins.NDBCache
+}
+
+// begin starts one decision: one per evaluation or evaluated batch item.
+func (l *decisionLog) begin() *decisionEval {
+	if l == nil {
+		return nil
+	}
+	e := &decisionEval{dl: l, m: metrics.New()}
+	if l.ndbCache {
+		e.ndb = builtins.NDBCache{}
+	}
+	return e
+}
+
+// regoOptions makes an evaluation record its metrics and ND builtins into e.
+func (e *decisionEval) regoOptions() []func(*rego.Rego) {
+	if e == nil {
+		return nil
+	}
+	opts := []func(*rego.Rego){rego.Metrics(e.m)}
+	if e.ndb != nil {
+		opts = append(opts, rego.NDBuiltinCache(e.ndb))
+	}
+	return opts
+}
+
+// log records the decision: the input the rule was evaluated with and the
 // result returned to the PEP for it, or the evaluation error. It never fails
 // the request; a decision log error is reported in OPA's own log.
-func (l *decisionLog) log(input map[string]any, result any, evalErr error) {
-	if l == nil {
+func (e *decisionEval) log(input map[string]any, result any, evalErr error) {
+	if e == nil {
 		return
 	}
+	l := e.dl
 	ctx := l.r.Context()
 
 	info := &server.Info{
@@ -79,6 +120,12 @@ func (l *decisionLog) log(input map[string]any, result any, evalErr error) {
 		Path:            l.path,
 		Timestamp:       time.Now().UTC(),
 		Error:           evalErr,
+		Metrics:         e.m,
+	}
+
+	// As the Data API does. Batch items share one span, so they are left out.
+	if l.batchID == "" {
+		trace.SpanFromContext(ctx).SetAttributes(attribute.String(otelDecisionIDAttr, info.DecisionID))
 	}
 
 	// OPA's HTTP server puts the request headers on the context of every
@@ -95,6 +142,15 @@ func (l *decisionLog) log(input map[string]any, result any, evalErr error) {
 	if sctx := trace.SpanContextFromContext(ctx); sctx.IsValid() {
 		info.TraceID = sctx.TraceID().String()
 		info.SpanID = sctx.SpanID().String()
+	}
+
+	if e.ndb != nil {
+		ndb, err := ast.JSON(e.ndb.AsValue())
+		if err != nil {
+			l.logger.Error("AuthZEN decision log: encoding nd_builtin_cache: %v", err)
+			return
+		}
+		info.NDBuiltinCache = &ndb
 	}
 
 	// Log copies in their JSON form: the mask policy edits the event in place,
@@ -118,6 +174,9 @@ func (l *decisionLog) log(input map[string]any, result any, evalErr error) {
 		l.logger.Error("AuthZEN decision log: %v", err)
 	}
 }
+
+// otelDecisionIDAttr is the span attribute OPA's server uses.
+const otelDecisionIDAttr = "opa.decision_id"
 
 // decisionLogPath names a decision the way the Data API's decision log does:
 // the rule's path below `data`, slash-separated (`authzen/allow`).
