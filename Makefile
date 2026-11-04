@@ -38,7 +38,7 @@ vet:
 # Tool versions. These are deliberately not tracked in go.mod: golangci-lint and
 # go-licenses are programs, not importable packages, so a require directive only
 # bloats the dependency graph of anyone importing ./plugin.
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.15.0
 GO_LICENSES_VERSION ?= v1.6.0
 GORELEASER_VERSION ?= v2.18.0
 
