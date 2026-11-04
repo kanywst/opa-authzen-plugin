@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.0] - 2026-11-04
+
+AuthZEN decisions now reach OPA's decision log. No configuration change is needed to upgrade.
+
 ### Added
 
 - AuthZEN decisions are written to OPA's decision log when `decision_logs` is configured, as Data API decisions are. Each evaluation is one event with path `<path>/<decision>`, the evaluated input and the returned Decision as `result`; each evaluated item of a batch is its own event, and the items of one request share a `batch_decision_id`. Searches are logged with path `<path>/<search rule>` and the returned page. Events carry `metrics` and, with `nd_builtin_cache` enabled, `nd_builtin_cache`, and the span gets `opa.decision_id`. The `system.log` mask and drop policies apply. Without `decision_logs` nothing changes, and responses are unchanged either way. See [Decision logs](README.md#decision-logs).
 - `example/kubernetes/`: a Deployment and Service for the published image, applied with `kubectl apply -k`, with the plugin config and policy in a generated ConfigMap. `example/kubernetes/test.sh` runs it on a kind cluster against an image built from the checkout.
+
+### Compatibility
+
+- Built against OPA v1.22.0, unchanged from v0.11.0.
+
+---
 
 ## [v0.11.0] - 2026-11-03
 
