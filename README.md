@@ -44,7 +44,7 @@ An extended version of OPA (**OPA-AuthZEN**) that implements the [OpenID AuthZEN
 └──────────────────────────────────────────────────┘
 ```
 
-The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181`) using OPA's `ExtraRoute` extension point. This means AuthZEN routes get OPA's built-in Prometheus metrics, OpenTelemetry tracing, and server authorization automatically — no separate port or listener required.
+The plugin registers AuthZEN endpoints directly on OPA's own HTTP server (`:8181`) using OPA's `ExtraRoute` extension point. This means AuthZEN routes get OPA's built-in Prometheus metrics, OpenTelemetry tracing, and server authorization automatically — no separate port or listener required. The plugin writes its decisions to OPA's decision log itself (see [Decision logs](#decision-logs)), since OPA's server only logs the routes it serves.
 
 ## AuthZEN 1.0 Compliance
 
@@ -338,6 +338,36 @@ denial_ctx := {
 ```
 
 The profile requires `expires_at` on every requestable denial, and requires denial-binding material in at least one of two forms, and which form is available to you depends on your topology. A stable `evaluation_id` binds _by reference_ and applies only where the Access Request Service resolves it against state shared with, or delegated by, the PDP; a signed `binding_token` binds _by value_ and works in any topology. Where the Access Request Service is independent of the PDP, the profile requires the `binding_token` form and requires that token to be self-contained — carrying the denied Subject, Resource, Action, and authorization-relevant Context inline or as a `binding_hash` — because a stateless PDP keeps no decision state for an independent service to fetch. A `binding_token` carrying only an `evaluation_id` does not satisfy that requirement. Emitting both forms is allowed and is worth doing: the profile still recommends a stable `context.evaluation_id`, and when a `binding_token` is present that identifier stops being a binding form and serves as a correlation and audit identifier instead. Both values come from your policy or a PDP-side signer; the plugin passes the `decision_context` object through unchanged and does not synthesize, sign, or validate them, so a deployment that needs the `binding_token` form must sign it outside the plugin and publish the verification key at `jwks_uri`. Emit `context.access_request` **only** when an Access Request Endpoint is actually able to process the request — the profile makes the presence of that object the sole signal that a denial is requestable.
+
+### Decision logs
+
+AuthZEN decisions are written to [OPA's decision log](https://www.openpolicyagent.org/docs/management-decision-logs), next to the Data API's. OPA's server only logs the routes it serves itself, so the plugin logs the decisions it evaluates. Nothing is configured on the plugin: when OPA's `decision_logs` is configured, AuthZEN decisions are logged; when it is not, nothing is logged, as for the Data API.
+
+```yaml
+plugins:
+  authzen: {}
+decision_logs:
+  console: true
+  request_context:
+    http:
+      headers: [X-Request-ID]
+```
+
+Each decision is one event:
+
+| Field | Value |
+| ----- | ----- |
+| `path` | `<path>/<decision>`, e.g. `authzen/allow`; for a search, `<path>/<search rule>` |
+| `input` | The input the rule was evaluated with: subject, action, resource and context after validation, batch default merging (Section 7.1.1) and obligation negotiation |
+| `result` | The Decision returned for it, `{"decision": ..., "context": ...}`; for a search, the response page (`results` and `page`) |
+| `error` | The evaluation error, instead of `result`, when the policy fails to evaluate |
+| `decision_id` | A new ID per decision |
+| `batch_decision_id` | For `/access/v1/evaluations` with an `evaluations` array, one ID shared by the items of the request |
+| `requested_by`, `req_id`, `timestamp`, `bundles`, `labels` | As for the Data API |
+
+`POST /access/v1/evaluations` logs one event per evaluated item, including a short-circuited item with the reason context it was answered with. Requests and batch items rejected before evaluation, such as one with a missing or malformed subject, action or resource, are not decisions and are not logged. A request without an `evaluations` array is a single evaluation and is logged as one, without a `batch_decision_id`.
+
+The `system.log` mask and drop policies apply as usual, so for example `mask contains "/input/subject/properties"` erases subject properties from AuthZEN decisions too. The AuthZEN `X-Request-ID` header (Section 10.1.3) is logged under `request_context` when listed in `decision_logs.request_context.http.headers`, as in the example. Logging never changes the response: unlike the Data API, the AuthZEN response carries no `decision_id`, and a decision log error is reported in OPA's log without failing the request.
 
 ## API Reference
 
