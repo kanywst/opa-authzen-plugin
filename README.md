@@ -361,8 +361,10 @@ Each decision is one event:
 | `input` | The input the rule was evaluated with: subject, action, resource and context after validation, batch default merging (Section 7.1.1) and obligation negotiation |
 | `result` | The Decision returned for it, `{"decision": ..., "context": ...}`; for a search, the response page (`results` and `page`) |
 | `error` | The evaluation error, instead of `result`, when the policy fails to evaluate |
-| `decision_id` | A new ID per decision |
+| `decision_id` | A new ID per decision, also set on the span as `opa.decision_id` except for batch items |
 | `batch_decision_id` | For `/access/v1/evaluations` with an `evaluations` array, one ID shared by the items of the request |
+| `metrics` | The metrics of the decision and `decision_context` evaluations |
+| `nd_builtin_cache` | With `nd_builtin_cache: true`, the non-deterministic builtin results, shared by the decision and `decision_context` rules |
 | `requested_by`, `req_id`, `timestamp`, `bundles`, `labels` | As for the Data API |
 
 `POST /access/v1/evaluations` logs one event per evaluated item, including a short-circuited item with the reason context it was answered with. Requests and batch items rejected before evaluation, such as one with a missing or malformed subject, action or resource, are not decisions and are not logged. A request without an `evaluations` array is a single evaluation and is logged as one, without a `batch_decision_id`.
