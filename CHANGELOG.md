@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- `github.com/klauspost/compress` v1.20.0 → v1.20.2, fixing GO-2026-6865 (a panic on two-block frames), which is reachable from the plugin.
+
 ## [v0.12.0] - 2026-11-04
 
 AuthZEN decisions now reach OPA's decision log. No configuration change is needed to upgrade.
