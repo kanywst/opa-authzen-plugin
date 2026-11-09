@@ -53,7 +53,7 @@ jobs:
 
       # cosign-installer publishes no floating major tag, so this is pinned to
       # an exact release and bumped by Dependabot.
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
 
       # Signing the digest rather than a tag binds the signature to the exact
       # index that was pushed; a later tag move cannot inherit it.
