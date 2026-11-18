@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.12.1] - 2026-11-18
+
+A security rebuild of the binaries and the image, on OPA v1.22.4. No configuration change is needed to upgrade.
+
 ### Security
 
 - The container image upgrades its alpine packages at build time. The v0.12.0 image ships zlib 1.3.2-r1 (CVE-2026-4738, fixed in 1.4-r0) because the `alpine:3.24` tag lags the package index. The plugin binary does not link zlib.
 - CI scans the image with grype (`make image-scan`) and fails on fixable High or Critical vulnerabilities.
 - Release binaries are built with Go 1.26.11, fixing GO-2026-6859 in net/http, which is reachable from the plugin on Go 1.26.10.
-- `github.com/klauspost/compress` v1.20.0 → v1.20.2, fixing GO-2026-6865 (a panic on two-block frames), which is reachable from the plugin.
+- `github.com/klauspost/compress` v1.20.0 → v1.20.3, fixing GO-2026-6865 (a panic on two-block frames), which is reachable from the plugin.
+
+### Compatibility
+
+- Built against OPA v1.22.4, up from v1.22.0 in v0.12.0. The OPA releases in between are bug fixes for a rule indexer regression and two type checker regressions, and carry no breaking changes.
+
+---
 
 ## [v0.12.0] - 2026-11-04
 
@@ -435,7 +445,8 @@ Packaging only. Plugin behavior is identical to v0.5.0 — `internal/` has no no
 
 ---
 
-[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.12.1...HEAD
+[v0.12.1]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.12.0...v0.12.1
 [v0.12.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/kanywst/opa-authzen-plugin/compare/v0.9.3...v0.10.0
