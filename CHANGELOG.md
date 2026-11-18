@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The container image upgrades its alpine packages at build time. The v0.12.0 image ships zlib 1.3.2-r1 (CVE-2026-4738, fixed in 1.4-r0) because the `alpine:3.24` tag lags the package index. The plugin binary does not link zlib.
+- CI scans the image with grype (`make image-scan`) and fails on fixable High or Critical vulnerabilities.
 - Release binaries are built with Go 1.26.11, fixing GO-2026-6859 in net/http, which is reachable from the plugin on Go 1.26.10.
 - `github.com/klauspost/compress` v1.20.0 → v1.20.2, fixing GO-2026-6865 (a panic on two-block frames), which is reachable from the plugin.
 
