@@ -41,6 +41,8 @@ vet:
 GOLANGCI_LINT_VERSION ?= v2.15.0
 GO_LICENSES_VERSION ?= v1.6.0
 GORELEASER_VERSION ?= v2.18.0
+# grype runs from its image, so this is an image tag.
+GRYPE_VERSION ?= v0.121.1
 
 .PHONY: print-golangci-lint-version
 print-golangci-lint-version:
@@ -69,6 +71,17 @@ DOCKER_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ec
 .PHONY: docker-build
 docker-build:
 	docker build -t $(IMAGE):$(DOCKER_VERSION) .
+
+# Scan the image for vulnerabilities that already have a fix. govulncheck covers
+# the Go side; this is what sees the alpine packages the image ships. Unfixed
+# findings are reported by grype but do not fail the target, since there is
+# nothing to upgrade to.
+.PHONY: image-scan
+image-scan: docker-build
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	docker save $(IMAGE):$(DOCKER_VERSION) -o "$$tmp/image.tar" && \
+	docker run --rm -v "$$tmp/image.tar:/image.tar:ro" anchore/grype:$(GRYPE_VERSION) \
+		docker-archive:/image.tar --only-fixed --fail-on high
 
 # --addr is not optional here: OPA binds localhost by default, which a published
 # port cannot reach from outside the container.
