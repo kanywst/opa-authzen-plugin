@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.12.1] - 2026-11-18
 
-A security rebuild for two vulnerabilities that are reachable from the v0.12.0 binaries, on top of OPA v1.22.4. No plugin code changes, and no configuration change is needed to upgrade.
+A security rebuild of the binaries and the image, on OPA v1.22.4. No configuration change is needed to upgrade.
 
 ### Security
 
@@ -20,7 +20,7 @@ A security rebuild for two vulnerabilities that are reachable from the v0.12.0 b
 
 ### Compatibility
 
-- Built against OPA v1.22.4, up from v1.22.0 in v0.12.0. The OPA releases in between are bug fixes (a rule indexer regression with `x in {"a", input.y}`, and type checker regressions that rejected iterating an empty collection or keys of an empty `default` rule replaced by `with`) and dependency bumps. None of them changes behaviour that a working policy relied on.
+- Built against OPA v1.22.4, up from v1.22.0 in v0.12.0. The OPA releases in between are bug fixes for a rule indexer regression and two type checker regressions, and carry no breaking changes.
 
 ---
 
